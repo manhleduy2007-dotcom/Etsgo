@@ -2,6 +2,16 @@
 
 Ứng dụng iOS (SwiftUI + SwiftData) giúp học sinh, sinh viên biến mong muốn học thành các bước làm được ngay, xếp vào lịch theo context cá nhân và thực hiện bằng Pomodoro. Đặc tả sản phẩm: [MVP_SPEC.md](MVP_SPEC.md). Mô hình kinh doanh: [BUSINESS_MODEL_CANVAS.md](BUSINESS_MODEL_CANVAS.md).
 
+## Bắt đầu cho thành viên và agent
+
+1. Đọc [bàn giao và trạng thái code](MVP_SPEC.md#11-bàn-giao-context-cho-các-agent-phát-triển), sau đó [quyết định kỹ thuật đã duyệt](MVP_SPEC.md#12-quyết-định-kỹ-thuật-đã-duyệt).
+2. Đọc [baseline dữ liệu](MVP_SPEC.md#13-baseline-dữ-liệu-và-các-bất-biến) và [hợp đồng tích hợp](MVP_SPEC.md#14-hợp-đồng-tích-hợp-giữa-các-nhóm) trước khi thay model/API.
+3. Nhận owner/phạm vi tại [phân công](MVP_SPEC.md#15-phân-công-để-nhiều-người-làm-song-song), thống nhất danh sách file trước khi thêm file. Theo [phase tích hợp và nghiệm thu](MVP_SPEC.md#16-thứ-tự-tích-hợp-và-điều-kiện-hoàn-thành).
+
+Thiết kế đích đã duyệt: **Python/FastAPI + Supabase Auth/PostgreSQL; iOS lưu local và đồng bộ offline; context có cấu trúc; AI tạo proposal; scheduler server; EventKit + Google Calendar; quota server, chưa thanh toán**. Các phần này chưa được triển khai chỉ vì đã có tài liệu.
+
+Baseline code được đọc là `aa9f237` trên nhánh `claude/dreamy-sagan-l66oau`. Quyết định mới thay thế lựa chọn tạm tương ứng trong code; kiểm tra branch/commit thực tế trước khi làm việc. Bản cập nhật tài liệu này không sửa mã ứng dụng, không bổ sung file hoặc dependency.
+
 ## Trạng thái
 
 Mã nguồn đã viết theo đặc tả nhưng **chưa từng được biên dịch hay chạy** (môi trường viết mã không có Xcode), kể cả `TodoList.xcodeproj/project.pbxproj`. Chưa có unit test. Mọi mục "đã có" bên dưới nghĩa là đã có mã, chưa phải đã kiểm chứng.
@@ -29,21 +39,21 @@ Mã nguồn đã viết theo đặc tả nhưng **chưa từng được biên d�
 | AD-01 | Sau khi lỡ, chưa xong hoặc vướng: đề xuất phương án, hiện thay đổi trước khi duyệt | `ScheduleView`, `AIService.unblock` |
 | LG-01 | Việt / Anh cho giao diện và hội thoại | `AppLanguage`, hàm `L(_:_:)` |
 
-## Lựa chọn tạm cho các điểm đặc tả chưa chốt (mục 10)
+## Lựa chọn trong code hiện tại và hướng chuyển đổi
 
-Các lựa chọn dưới đây được đưa vào mã để có thứ chạy thử, **chưa phải quyết định đã duyệt**:
+Đây là trạng thái code tại baseline, không phải mô tả backend đã triển khai. Đối chiếu [mục 10](MVP_SPEC.md#10-trạng-thái-các-điểm-từng-để-mở) và [mục 12](MVP_SPEC.md#12-quyết-định-kỹ-thuật-đã-duyệt) để biết thiết kế mới đã duyệt:
 
 - **Nền tảng:** iOS native, iOS 17+.
-- **AI:** Claude (`claude-opus-5-5`), gọi thẳng từ điện thoại bằng khoá API người dùng tự nhập, lưu trong Keychain. Cách này không dùng được cho freemium có hạn mức; khi đó cần backend giữ khoá và đếm lượt.
+- **AI:** code gọi Claude (`claude-opus-5-5`) thẳng từ điện thoại bằng khoá người dùng tự nhập trong Keychain. Thiết kế mới chuyển khóa, gọi AI và hạn mức về backend; model/provider cuối chưa chốt.
 - **Voice:** nhận dạng giọng nói của iOS (Speech framework).
-- **Nguồn lịch:** Lịch của iPhone qua EventKit. Chưa có Google Calendar hay Notion Calendar.
-- **Cam kết:** tính cả giờ nghỉ, tức là tổng thời gian chiếm trên lịch.
+- **Nguồn lịch:** code có EventKit. Thiết kế mới yêu cầu thêm Google Calendar ngay mốc đầu; Notion chưa thuộc đợt tích hợp này.
+- **Cam kết:** tính cả giờ nghỉ, tức tổng thời gian chiếm trên lịch; đã được duyệt giữ nguyên.
 - **Tài liệu học:** AI mô tả loại tài liệu và câu tìm kiếm; ứng dụng mở trang tìm kiếm web.
 - **Việc lặp:** hằng ngày hoặc hằng tuần, tạo bản kế tiếp khi hoàn thành.
 
 ## Chưa làm
 
-- Backend, tài khoản, hạn mức miễn phí và gói trả phí.
+- Backend, tài khoản, đồng bộ offline với server và hạn mức miễn phí theo thiết kế đã duyệt. Thanh toán/gói trả phí nằm sau mốc thử nghiệm đầu.
 - Chính sách lưu/xoá dữ liệu, đồng ý sử dụng dữ liệu, xử lý người dùng chưa thành niên.
 - Đo lường (mục 9): mới chỉ lưu các phiên tập trung trong `FocusSession`, chưa có báo cáo.
 - Bộ đếm Pomodoro khi app ở nền chỉ dựa vào mốc kết thúc và một thông báo; chưa có Live Activity.

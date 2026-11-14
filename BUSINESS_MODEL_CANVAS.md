@@ -6,6 +6,8 @@ Cơ sở sản phẩm: [MVP_SPEC.md](MVP_SPEC.md).
 
 Agent tiếp nhận công việc đọc phần bàn giao tại mục 11 của đặc tả. Canvas mô tả mô hình và giả thuyết kinh doanh; không dùng các kênh/đối tác được đề xuất ở đây để suy ra tính năng bổ sung hoặc tích hợp đã được triển khai.
 
+Quyết định kỹ thuật đã duyệt và phân công phát triển nằm tại mục 12–16 của đặc tả. Mốc hoàn thành đầu tiên: app iOS có tài khoản thật, dữ liệu backend, đồng bộ offline, AI, EventKit + Google Calendar và hạn mức miễn phí; chưa triển khai thanh toán. Đây là mốc nghiệm thu kỹ thuật, không thay đổi hướng freemium dài hạn.
+
 Phân khúc học sinh/sinh viên, định vị cá nhân hóa bằng context, lựa chọn Việt/Anh và hướng freemium đã được duyệt. Các kênh tiếp cận, cấu trúc gói và giả định thương mại dưới đây là phương án để kiểm chứng, chưa phải dữ liệu thị trường hoặc quan hệ đối tác đã xác lập.
 
 ## 1. Phân khúc khách hàng — Customer segments
