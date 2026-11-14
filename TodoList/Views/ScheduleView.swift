@@ -14,6 +14,7 @@ struct ScheduleView: View {
     @State private var startingItem: TodoItem?
     @State private var confirmExport = false
     @State private var exportTarget = "eventkit"
+    @State private var exportStates: [[String: String]] = []
     private var api: BackendClient { BackendClient.shared }
 
     var body: some View {
@@ -28,6 +29,13 @@ struct ScheduleView: View {
                     .disabled(busy)
                 if busy { ProgressView() }
                 if let message { Banner(text: message) }
+                Button(L("Cập nhật trạng thái ghi lịch", "Refresh calendar export status")) {
+                    Task { await refreshExports() }
+                }
+                ForEach(exportStates, id: \.self) { state in
+                    Text(exportStatusLine(state))
+                        .font(.caption)
+                }
                 if let proposal {
                     Eyebrow(text: L("Đề xuất, chưa áp dụng", "Proposal, not applied"))
                     ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
@@ -45,20 +53,7 @@ struct ScheduleView: View {
                         .disabled(busy || entries.isEmpty)
                     Button(L("Bỏ đề xuất", "Discard proposal")) { self.proposal = nil }
                 } else {
-                    ForEach(sessions.filter { session in tasks.contains { $0.uid == session.taskID && !$0.isDone } }) { session in
-                        Button {
-                            if let task = tasks.first(where: { $0.uid == session.taskID }) {
-                                task.focusMinutes = session.focusMinutes; task.breakMinutes = session.breakMinutes
-                                startingItem = task
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(title(session.taskID)).font(.headline)
-                                Text(shortDateText(session.start)+" ? "+timeText(session.end)).font(.caption)
-                                Text(durationText(session.focusMinutes)+" / "+durationText(session.breakMinutes)).font(.caption)
-                            }.frame(maxWidth: .infinity, alignment: .leading).padding(14).background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
-                        }.buttonStyle(.plain)
-                    }
+                    ForEach(visibleSessions) { session in approvedRow(session) }
                     Picker(L("Ghi vào", "Export to"), selection: $exportTarget) {
                         Text("iPhone Calendar").tag("eventkit")
                         Text("Google Calendar").tag("google")
@@ -76,12 +71,39 @@ struct ScheduleView: View {
         }
         .task { await SyncCoordinator.shared.sync(context) }
     }
+    private var visibleSessions: [PlannedSession] {
+        sessions.filter { session in tasks.contains { $0.uid == session.taskID && !$0.isDone } }
+    }
+    private func exportStatusLine(_ state: [String: String]) -> String {
+        let title = state["title"] ?? ""
+        let status = state["status"] ?? ""
+        let error = state["error"].map { " (" + $0 + ")" } ?? ""
+        return title + ": " + status + error
+    }
+    private func approvedRow(_ session: PlannedSession) -> some View {
+        Button {
+            if let task = tasks.first(where: { $0.uid == session.taskID }) {
+                task.focusMinutes = session.focusMinutes
+                task.breakMinutes = session.breakMinutes
+                startingItem = task
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title(session.taskID)).font(.headline)
+                Text(shortDateText(session.start) + " - " + timeText(session.end)).font(.caption)
+                Text(durationText(session.focusMinutes) + " / " + durationText(session.breakMinutes)).font(.caption)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+        }.buttonStyle(.plain)
+    }
     private func title(_ id: String) -> String { tasks.first { $0.uid == id }?.title ?? id }
     private func block(_ entry: [String: Any]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title(entry["task_id"] as? String ?? "")).font(.headline)
             if let start = SyncCoordinator.shared.date(entry["start"]), let end = SyncCoordinator.shared.date(entry["end"]) {
-                Text(shortDateText(start)+" ? "+timeText(end)).font(.caption)
+                Text(shortDateText(start)+" - "+timeText(end)).font(.caption)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(14).background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
     }
@@ -104,6 +126,7 @@ struct ScheduleView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
+                try await SyncCoordinator.shared.flush(context)
                 if UserDefaults.standard.bool(forKey: "syncCalendar") { try await CalendarService.shared.publishBusy() }
                 let edited = try await api.request("PATCH", "/v1/proposals/"+id,
                     ["expected_version": proposal["version"] as? Int ?? 1, "sessions": entries])
@@ -121,12 +144,24 @@ struct ScheduleView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
+                try await SyncCoordinator.shared.flush(context)
                 let references = sessions.filter { $0.end > .now }.map { ["id": $0.uid, "version": $0.version] as [String: Any] }
                 _ = try await api.request("POST", "/v1/calendar/exports",
                     ["target": exportTarget, "device_id": api.deviceID, "sessions": references], key: UUID().uuidString.lowercased())
                 if exportTarget == "eventkit" { try await CalendarService.shared.executeActions() }
+                await refreshExports()
                 message = L("Đã gửi yêu cầu ghi lịch. Google được xử lý bởi worker.", "Calendar export submitted. Google exports run on the worker.")
             } catch { message = error.localizedDescription }
         }
+    }
+    private func refreshExports() async {
+        do {
+            let value = try await api.request("GET", "/v1/calendar/status")
+            exportStates = (value["exports"] as? [[String: Any]] ?? []).map { row in
+                var state = ["id": row["planned_id"] as? String ?? "", "title": row["title"] as? String ?? "", "status": row["status"] as? String ?? ""]
+                if let error = row["error"] as? String { state["error"] = error }
+                return state
+            }
+        } catch { message = error.localizedDescription }
     }
 }

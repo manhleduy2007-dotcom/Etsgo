@@ -94,7 +94,7 @@ Không có credentials không ngăn app mở và dùng to-do, đồng bộ local
 
 - Tạo OAuth **Web client**, bật Calendar API, đặt redirect đúng `${PUBLIC_URL}/v1/calendar/google/callback`. Thêm tài khoản thử vào consent screen nếu đang testing.
 - Điền `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_URL`; tạo `ENCRYPTION_KEY` theo `.env.example`. Giữ encryption key ổn định sau khi lưu refresh token.
-- Trong app: Cài đặt → Tài khoản và đồng bộ → Kết nối Google Calendar. Backend mặc định đọc lịch Google primary và ghi lịch Etsgo riêng.
+- Trong app: Cài đặt → Tài khoản và đồng bộ → Kết nối Google Calendar. Sau khi kết nối, dùng **Chọn lịch Google cần đọc**, chọn các nguồn rồi lưu. Mặc định đọc primary; có thể chọn nhiều lịch. Lịch Etsgo dùng để ghi bị loại khỏi danh sách nguồn busy.
 - Bật kết nối lịch iPhone để đọc EventKit. Khi dùng Google trực tiếp đồng thời, chọn nguồn EventKit và bỏ lịch Google trùng. Lịch Etsgo không tính là busy bên ngoài.
 - Duyệt lịch trong app chưa ghi Calendar. Phải xác nhận xuất riêng; một phiên chỉ có một đích. Xuất lại cùng đích bao gồm dọn các phiên Etsgo cũ không còn dùng.
 - Khi mất quyền hoặc dữ liệu ngoài bị sửa, cần kết nối/đối chiếu lại; gửi request không đồng nghĩa đã ghi thành công.
@@ -141,11 +141,11 @@ Terminal khác, activate cùng virtualenv, vào `backend/`, chạy `python -m ap
 ## Trạng thái bàn giao
 
 - Trước yêu cầu tạm bỏ qua kiểm thử: đã chạy 13 ca backend trên PostgreSQL thật ở Windows. CI của commit `facdc93` có backend và build iOS Simulator trên macOS thành công.
-- Các sửa bàn giao sau commit đó **chưa chạy lại test/build** theo yêu cầu. Xem Git history để phân biệt phần đã qua CI với phần mới.
+- Sau khi tiếp tục công việc: 18 ca backend qua trên PostgreSQL thật, gồm chọn lịch Google, phân trang, lỗi EventKit, xung đột tạo sự kiện và luồng duyệt → xuất → xếp lại → từ chối phản hồi cũ. Đây là kiểm thử với HTTP giả có kiểm soát; chưa thay thế nghiệm thu tài khoản Google thật. Xem CI/Git history cho trạng thái build iOS của từng commit.
 - Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu OTP, AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
 - Workflow `.github/workflows/ci.yml` có kiểm tra PostgreSQL và build Xcode để nhóm dùng khi tiếp tục. Chưa chạy không có nghĩa đã đạt.
 - `.env`, `.venv`, `.tools` không thuộc nguồn bàn giao. PostgreSQL portable đang dùng trên Windows nằm trong `.tools`; teammate Mac dùng Docker hoặc PostgreSQL của Mac.
-- Giá trị chưa chốt: model AI cuối, hạn mức thương mại, chính sách dữ liệu người chưa thành niên và hosting thật. Google hiện đọc primary; việc chọn thêm nhiều lịch Google chưa có giao diện cấu hình trong bản này.
+- Giá trị chưa chốt: model AI cuối, hạn mức thương mại, chính sách dữ liệu người chưa thành niên và hosting thật. App đã có chọn lịch Google và làm mới trạng thái xuất lịch; kiểm thử tương tác thiết bị vẫn cần thực hiện trên Mac.
 
 ## Lệnh khi nhóm tiếp tục kiểm thử
 

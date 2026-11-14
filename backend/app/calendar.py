@@ -106,6 +106,36 @@ def google_busy(owner, start, end):
              "range_start": start.isoformat(), "range_end": end.isoformat(), "source": "google"})
 
 
+def google_calendars(owner):
+    from types import SimpleNamespace
+    with Session() as db:
+        row = db.get(Entity, (owner, "connection", "google"))
+        if not row or row.deleted:
+            raise Problem(409, "google_not_connected")
+        connection = SimpleNamespace(data=dict(row.data))
+        version = row.version
+    token = google_token(connection)
+    items, page = [], None
+    with httpx.Client(timeout=20, headers={"Authorization": "Bearer "+token}) as client:
+        while True:
+            params = {"maxResults": 250, "minAccessRole": "freeBusyReader"}
+            if page:
+                params["pageToken"] = page
+            response = client.get(GOOGLE+"/users/me/calendarList", params=params)
+            response.raise_for_status()
+            data = response.json()
+            for item in data.get("items", []):
+                if item["id"] == connection.data["app_calendar"] or item.get("deleted"):
+                    continue
+                selected = item["id"] in connection.data["read_calendars"] or (item.get("primary") and "primary" in connection.data["read_calendars"])
+                items.append({"id": item["id"], "title": item.get("summaryOverride", item.get("summary", item["id"])),
+                              "selected": bool(selected)})
+            page = data.get("nextPageToken")
+            if not page:
+                break
+    return items, version
+
+
 def busy_data(db, owner):
     from .scheduler import parse
     result, stale = [], []
@@ -147,6 +177,14 @@ def export_google(connection, action):
             response = client.post(base, json={"id": event_id, **body})
             if response.status_code == 409:
                 response = client.get(base+"/"+event_id)
+                response.raise_for_status()
+                old = response.json()
+                from .scheduler import parse
+                properties = old.get("extendedProperties", {}).get("private", {})
+                if (properties.get("etsgo_id") != action["planned_id"] or properties.get("revision") != str(action["revision"]) or
+                        parse(old["start"]["dateTime"]) != parse(action["start"]) or
+                        parse(old["end"]["dateTime"]) != parse(action["end"]) or old.get("summary") != action["title"]):
+                    raise Problem(409, "calendar_reconcile_required")
         else:
             existing.raise_for_status()
             old = existing.json()
@@ -161,5 +199,7 @@ def export_google(connection, action):
             if action.get("previous_etag") and old["etag"] != action["previous_etag"]:
                 raise Problem(409, "calendar_reconcile_required")
             response = client.patch(base+"/"+event_id, json=body, headers={"If-Match": old["etag"]})
+        if response.status_code == 412:
+            raise Problem(409, "calendar_reconcile_required")
         response.raise_for_status()
         return {"external_id": event_id, "calendar_id": calendar_id, "etag": response.json().get("etag")}
