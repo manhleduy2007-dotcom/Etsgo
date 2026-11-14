@@ -310,3 +310,61 @@ def test_schedule_accept_export_and_stale_ack(client, user):
     response = client.post("/v1/calendar/actions/"+first[0]["id"]+"/result", headers=headers,
                            json={"device_id": "phone", "revision": first[0]["version"], "external_id": "old"})
     assert response.status_code == 409
+
+
+def test_openai_adapter_structured_response(monkeypatch):
+    import json
+    import httpx
+    import openai
+    from types import SimpleNamespace
+    from app import ai
+    monkeypatch.setattr(ai, "settings", lambda: SimpleNamespace(
+        ai_provider="openai", openai_api_key="test-only-placeholder", ai_model="test-model"))
+    original = openai.OpenAI
+    captured = {}
+    expected = {"tip": "Start with one exercise.", "resource_title": "", "search_query": ""}
+    def handler(request):
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "resp_test", "object": "response", "created_at": 1,
+            "status": "completed", "model": "test-model", "output": [{"id": "msg_test", "type": "message",
+            "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": json.dumps(expected), "annotations": []}]}]})
+    monkeypatch.setattr(ai.openai, "OpenAI", lambda **kwargs: original(**kwargs, http_client=httpx.Client(transport=httpx.MockTransport(handler))))
+    assert ai.complete(ai.Guidance, "Help the student", {"task": "Python"}) == expected
+    assert captured["store"] is False
+    assert captured["text"]["format"]["type"] == "json_schema"
+    assert captured["text"]["format"]["strict"] is True
+
+
+def test_openai_adapter_errors_and_refusal(monkeypatch):
+    import httpx
+    import openai
+    import pytest
+    from types import SimpleNamespace
+    from app import ai
+    monkeypatch.setattr(ai, "settings", lambda: SimpleNamespace(
+        ai_provider="openai", openai_api_key="test-only-placeholder", ai_model="test-model"))
+    original = openai.OpenAI
+    for status, content, expected_error in [
+        (401, {"error": {"message": "private provider details"}}, "ai_authentication_failed"),
+        (400, {"error": {"message": "private provider details"}}, "ai_request_invalid"),
+        (200, {"id": "resp_test", "object": "response", "created_at": 1, "status": "completed", "model": "test-model",
+               "output": [{"id": "msg", "type": "message", "role": "assistant", "status": "completed",
+                           "content": [{"type": "refusal", "refusal": "Cannot respond"}]}]}, "ai_incomplete"),
+        (200, {"id": "resp_test", "object": "response", "created_at": 1, "status": "incomplete", "model": "test-model", "output": []}, "ai_incomplete")]:
+        transport = httpx.MockTransport(lambda request: httpx.Response(status, json=content))
+        monkeypatch.setattr(ai.openai, "OpenAI", lambda **kwargs: original(**kwargs, http_client=httpx.Client(transport=transport)))
+        with pytest.raises(RuntimeError, match=expected_error) as error:
+            ai.complete(ai.Guidance, "Help", {})
+        assert "private provider details" not in str(error.value)
+
+
+def test_openai_missing_credentials_does_not_call_provider(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    from app import ai
+    monkeypatch.setattr(ai, "settings", lambda: SimpleNamespace(ai_provider="openai", openai_api_key="", ai_model="test-model"))
+    def unexpected(**kwargs):
+        raise AssertionError("Provider must not be called without credentials")
+    monkeypatch.setattr(ai.openai, "OpenAI", unexpected)
+    with pytest.raises(RuntimeError, match="ai_not_configured"):
+        ai.complete(ai.Guidance, "Help", {})

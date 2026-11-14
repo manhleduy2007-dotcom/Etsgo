@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,6 +12,8 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     encryption_key: str = ""
     anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    ai_provider: Literal["anthropic", "openai"] = "anthropic"
     ai_model: str = ""
     daily_ai_limit: int = 20
     google_client_id: str = ""

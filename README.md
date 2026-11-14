@@ -86,7 +86,12 @@ Không có credentials không ngăn app mở và dùng to-do, đồng bộ local
 
 ### AI
 
-- Điền `ANTHROPIC_API_KEY` và `AI_MODEL` thực sự được cấp quyền trên tài khoản.
+OpenAI adapter đã được kiểm tra bằng SDK thật với HTTP giả cho kết quả hợp lệ, refusal/incomplete và lỗi xác thực/request. Bộ backend hiện có 21 ca qua local; chưa gọi OpenAI thật bằng khóa người dùng. Phải đặt khóa mới trong `.env` rồi khởi động lại API/worker để kích hoạt.
+
+- OpenAI: đặt `AI_PROVIDER=openai`, `OPENAI_API_KEY` và `AI_MODEL=gpt-4.1-mini` (hoặc model hỗ trợ Structured Outputs được cấp quyền trên tài khoản). Backend dùng Responses API với schema Pydantic, không cần sửa app iOS.
+- Anthropic vẫn được hỗ trợ: đặt `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` và model tương ứng trong `AI_MODEL`. Không có fallback tự gửi context sang provider khác.
+- Chỉ lưu khóa trong `.env` của backend/secret môi trường triển khai; không đưa vào Swift, `.env.example`, Git hay chat. Nếu khóa đã bị lộ, thu hồi và thay khóa mới trước khi sử dụng.
+- Sau khi đổi cấu hình: khởi động lại **cả API lẫn worker**. Với Docker dùng `docker compose up --build -d --force-recreate api worker`.
 - Khóa nằm ở backend. Model là cấu hình, không hardcode trong iOS.
 - Chưa cấu hình thì job báo `ai_not_configured`; quota user được hoàn khi job kết thúc lỗi. Quota sản phẩm không đồng nghĩa chi phí provider.
 

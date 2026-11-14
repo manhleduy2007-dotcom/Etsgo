@@ -48,7 +48,8 @@ def process_one():
         result = execute(work, None)
     except Exception as exc:
         # Never put provider responses, OAuth tokens or personal context in logs.
-        error = exc.code if isinstance(exc, Problem) else (str(exc) if str(exc) in {"ai_not_configured", "ai_incomplete"} else "provider_failed")
+        error = exc.code if isinstance(exc, Problem) else (str(exc) if str(exc) in {
+            "ai_not_configured", "ai_incomplete", "ai_authentication_failed", "ai_request_invalid"} else "provider_failed")
     with Session.begin() as db:
         job = db.get(Job, identity)
         lock_account(db, job.owner)
