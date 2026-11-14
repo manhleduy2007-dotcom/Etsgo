@@ -339,6 +339,7 @@ struct PlannerView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
+                try await SyncCoordinator.shared.flush(context)
                 let (turn, rawJSON) = try await AIService().planTurn(history: messages, context: promptContext, forcePlan: forcePlan)
                 history.append(ChatMessage(role: "assistant", content: rawJSON))
                 if turn.type == "plan", !turn.steps.isEmpty {

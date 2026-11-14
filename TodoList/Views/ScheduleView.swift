@@ -90,7 +90,7 @@ struct ScheduleView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
-                await SyncCoordinator.shared.sync(context)
+                try await SyncCoordinator.shared.flush(context)
                 if UserDefaults.standard.bool(forKey: "syncCalendar") { try await CalendarService.shared.publishBusy() }
                 let value = try await api.request("POST", "/v1/schedule/proposals", key: UUID().uuidString.lowercased())
                 proposal = value; entries = value["sessions"] as? [[String: Any]] ?? []

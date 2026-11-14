@@ -1,10 +1,11 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=Path(__file__).resolve().parents[2] / ".env", extra="ignore")
     database_url: str = "postgresql+psycopg://etsgo:etsgo@localhost:5432/etsgo"
     supabase_url: str = ""
     supabase_anon_key: str = ""
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     # Development login is disabled by default and cannot run in production.
     environment: str = "production"
     dev_auth_secret: str = ""
+    dev_trust_docker_gateway: bool = False
     busy_max_age_seconds: int = 300
 
 

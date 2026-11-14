@@ -8,6 +8,7 @@ final class SyncCoordinator: ObservableObject {
     @Published var status = ""
     @Published var hasConflicts = false
     private var running = false
+    private var lastSucceeded = false
     private let api = BackendClient.shared
     private let formatter = ISO8601DateFormatter()
 
@@ -99,6 +100,7 @@ final class SyncCoordinator: ObservableObject {
     func sync(_ db: ModelContext) async {
         guard api.signedIn, !running else { return }
         running = true
+        lastSucceeded = false
         defer { running = false }
         do {
             if !UserDefaults.standard.bool(forKey: "syncInitialized") {
@@ -156,7 +158,19 @@ final class SyncCoordinator: ObservableObject {
             }
             status = L("Đã đồng bộ", "Synced")
             hasConflicts = try db.fetch(FetchDescriptor<SyncRecord>()).contains { !$0.conflict.isEmpty }
+            lastSucceeded = !hasConflicts
         } catch { status = error.localizedDescription }
+    }
+
+    /// Commands which depend on server data must wait for an in-flight sync,
+    /// then flush new edits rather than racing the periodic background cycle.
+    func flush(_ db: ModelContext) async throws {
+        while running {
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        await sync(db)
+        guard lastSucceeded else { throw BackendFailure(code: "sync_required_before_server_action") }
     }
 
     func apply(_ change: [String: Any], db: ModelContext) throws {

@@ -59,6 +59,10 @@ def process_one():
             else:
                 job.status = "failed"
                 release(db, job)
+                if job.kind == "calendar":
+                    binding = db.get(Entity, (job.owner, "binding", job.payload["planned_id"]))
+                    if binding and binding.data.get("revision") == job.payload["revision"]:
+                        save(db, job.owner, "binding", binding.id, {**binding.data, "status": "failed", "error": error})
             return True
         if job.kind == "plan":
             from .sync import entities, planning_signature, singleton
@@ -92,6 +96,10 @@ def process_one():
                     save(db, job.owner, "context", uid(), {"text": fact["text"], "source": "handoff" if fact["stated"] else "assumption",
                          "confirmed": False, "scope": "personal", "scope_id": None, "valid_until": None})
         if job.kind == "calendar":
+            binding = db.get(Entity, (job.owner, "binding", job.payload["planned_id"]))
+            if binding and binding.data.get("revision") != job.payload["revision"]:
+                job.status = "cancelled"
+                return True
             save(db, job.owner, "binding", job.payload["planned_id"], {**job.payload, **result, "provider": "google",
                  "status": "removed" if result.get("removed") else "synced"})
         job.status, job.result, job.error = "succeeded", result, None

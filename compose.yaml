@@ -24,7 +24,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://etsgo:${POSTGRES_PASSWORD:-etsgo-local-only}@db:5432/etsgo
-    ports: ["8000:8000"]
+      # Only the localhost port below is published. The container sees Docker's
+      # private gateway as the client rather than the host's loopback address.
+      DEV_TRUST_DOCKER_GATEWAY: "true"
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       migrate: {condition: service_completed_successfully}
   worker:

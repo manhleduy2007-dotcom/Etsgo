@@ -69,7 +69,15 @@ class AuthInput(BaseModel):
 @app.post("/v1/auth/development")
 def development_login(request: Request):
     cfg = settings()
-    if cfg.environment != "development" or len(cfg.dev_auth_secret) < 32 or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+    import ipaddress
+    host = request.client.host
+    local = host in {"127.0.0.1", "::1", "testclient"}
+    if cfg.dev_trust_docker_gateway:
+        try:
+            local = local or ipaddress.ip_address(host).is_private
+        except ValueError:
+            pass
+    if cfg.environment != "development" or len(cfg.dev_auth_secret) < 32 or not local:
         raise Problem(404, "not_found")
     import jwt
     from uuid import NAMESPACE_URL, uuid5
@@ -421,6 +429,9 @@ def export(body: dict, user: User, key: Key):
                 raise Problem(422, "invalid_target")
             if existing and existing.data["provider"] != target:
                 raise Problem(409, "already_exported_elsewhere")
+            if existing and existing.data.get("revision") == row.version and existing.data.get("status") in {"synced", "pending"}:
+                actions.append({"planned_id": row.id, "status": existing.data["status"]})
+                continue
             action = {"planned_id": row.id, "revision": row.version, "title": task.data["title"],
                       "start": row.data["start"], "end": row.data["end"], "device_id": body.get("device_id"),
                       "previous_start": existing.data.get("start") if existing else None,
@@ -430,7 +441,7 @@ def export(body: dict, user: User, key: Key):
             if target == "google":
                 if not db.get(Entity, (user, "connection", "google")):
                     raise Problem(409, "google_not_connected")
-                actions.append(new_job(db, user, "calendar", action, "calendar:"+row.id+":"+str(row.version), False))
+                actions.append(new_job(db, user, "calendar", action, "calendar:"+row.id+":"+key, False))
             else:
                 save(db, user, "calendar_action", row.id, {**action, "status": "pending"})
                 actions.append({"action_id": row.id})

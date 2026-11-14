@@ -84,6 +84,7 @@ struct HandoffImportView: View {
         Task { @MainActor in
             defer { busy = false }
             do {
+                try await SyncCoordinator.shared.flush(context)
                 let drafts = try await AIService().summarizeHandoff(text: text)
                 await SyncCoordinator.shared.sync(context)
                 pasted = ""
