@@ -140,6 +140,8 @@ Terminal khác, activate cùng virtualenv, vào `backend/`, chạy `python -m ap
 
 ## Trạng thái bàn giao
 
+- Bản mã `f94c59e` đã qua [CI backend và build iOS Simulator trên macOS](https://github.com/manhleduy2007-dotcom/Etsgo/actions/runs/43573712873). Bộ backend hiện có 18 ca kiểm tra, qua trên PostgreSQL thật. Build thành công chưa thay thế việc chạy tương tác và nghiệm thu dịch vụ thật trên Mac/iPhone.
+
 - Trước yêu cầu tạm bỏ qua kiểm thử: đã chạy 13 ca backend trên PostgreSQL thật ở Windows. CI của commit `facdc93` có backend và build iOS Simulator trên macOS thành công.
 - Sau khi tiếp tục công việc: 18 ca backend qua trên PostgreSQL thật, gồm chọn lịch Google, phân trang, lỗi EventKit, xung đột tạo sự kiện và luồng duyệt → xuất → xếp lại → từ chối phản hồi cũ. Đây là kiểm thử với HTTP giả có kiểm soát; chưa thay thế nghiệm thu tài khoản Google thật. Xem CI/Git history cho trạng thái build iOS của từng commit.
 - Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu OTP, AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
