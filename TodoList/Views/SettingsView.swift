@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Chỉnh lịch học mặc định theo tuần: khung giờ có thể xếp và thời gian muốn cam kết mỗi ngày.
 struct WeeklyScheduleEditor: View {

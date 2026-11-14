@@ -92,7 +92,8 @@ def process_one():
                     save(db, job.owner, "context", uid(), {"text": fact["text"], "source": "handoff" if fact["stated"] else "assumption",
                          "confirmed": False, "scope": "personal", "scope_id": None, "valid_until": None})
         if job.kind == "calendar":
-            save(db, job.owner, "binding", job.payload["planned_id"], {**job.payload, **result, "provider": "google", "status": "synced"})
+            save(db, job.owner, "binding", job.payload["planned_id"], {**job.payload, **result, "provider": "google",
+                 "status": "removed" if result.get("removed") else "synced"})
         job.status, job.result, job.error = "succeeded", result, None
     return True
 

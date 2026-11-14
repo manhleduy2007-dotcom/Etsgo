@@ -131,6 +131,18 @@ def export_google(connection, action):
             "extendedProperties": {"private": {"etsgo_id": action["planned_id"], "revision": str(action["revision"])}}}
     with httpx.Client(timeout=20, headers=headers) as client:
         existing = client.get(base+"/"+event_id)
+        if action.get("action") == "delete":
+            if existing.status_code == 404 or existing.status_code == 410:
+                return {"external_id": event_id, "calendar_id": calendar_id, "removed": True}
+            existing.raise_for_status()
+            old = existing.json()
+            if old.get("extendedProperties", {}).get("private", {}).get("etsgo_id") != action["planned_id"]:
+                raise Problem(409, "calendar_reconcile_required")
+            if action.get("previous_etag") and old["etag"] != action["previous_etag"]:
+                raise Problem(409, "calendar_reconcile_required")
+            response = client.delete(base+"/"+event_id, headers={"If-Match": old["etag"]})
+            response.raise_for_status()
+            return {"external_id": event_id, "calendar_id": calendar_id, "removed": True}
         if existing.status_code == 404:
             response = client.post(base, json={"id": event_id, **body})
             if response.status_code == 409:
@@ -140,6 +152,13 @@ def export_google(connection, action):
             old = existing.json()
             props = old.get("extendedProperties", {}).get("private", {})
             if props.get("etsgo_id") != action["planned_id"]:
+                raise Problem(409, "calendar_reconcile_required")
+            from .scheduler import parse
+            same = (parse(old["start"]["dateTime"]) == parse(action["start"]) and
+                    parse(old["end"]["dateTime"]) == parse(action["end"]) and old["summary"] == action["title"])
+            if same and props.get("revision") == str(action["revision"]):
+                return {"external_id": event_id, "calendar_id": calendar_id, "etag": old["etag"]}
+            if action.get("previous_etag") and old["etag"] != action["previous_etag"]:
                 raise Problem(409, "calendar_reconcile_required")
             response = client.patch(base+"/"+event_id, json=body, headers={"If-Match": old["etag"]})
         response.raise_for_status()

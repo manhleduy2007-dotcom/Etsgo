@@ -70,7 +70,7 @@ struct ScheduleView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .fullScreenCover(item: $startingItem) { PomodoroView(item: $0) }
-        .confirmationDialog(L("Ghi các phiên vào lịch đã chọn?", "Write sessions to the selected calendar?"), isPresented: $confirmExport) {
+        .confirmationDialog(L("Ghi các phiên và xóa phiên Etsgo cũ không còn dùng ở lịch đã chọn?", "Write sessions and remove obsolete Etsgo slots in the selected calendar?"), isPresented: $confirmExport) {
             Button(L("Xác nhận ghi", "Confirm export")) { export() }
             Button(L("Hủy", "Cancel"), role: .cancel) {}
         }

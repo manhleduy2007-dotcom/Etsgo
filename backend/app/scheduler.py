@@ -1,6 +1,6 @@
 """Pure scheduling rules; no LLM or database required."""
 from datetime import UTC, datetime, time, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
 
@@ -67,7 +67,7 @@ def schedule(tasks, week, commitments, busy, timezone, start, days=14):
             begin, end, day = found
             trial_budget[day] -= minutes
             trial_busy.append((begin, end))
-            proposed.append({"id": str(uuid4()), "task_id": task["id"],
+            proposed.append({"id": str(uuid5(UUID(task["id"]), f"slot-{len(proposed)}")), "task_id": task["id"],
                              "start": begin.isoformat(), "end": end.isoformat(),
                              "focus_minutes": focus, "break_minutes": rest})
             remaining -= minutes

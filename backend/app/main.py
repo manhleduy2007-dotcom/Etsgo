@@ -422,7 +422,10 @@ def export(body: dict, user: User, key: Key):
             if existing and existing.data["provider"] != target:
                 raise Problem(409, "already_exported_elsewhere")
             action = {"planned_id": row.id, "revision": row.version, "title": task.data["title"],
-                      "start": row.data["start"], "end": row.data["end"], "device_id": body.get("device_id")}
+                      "start": row.data["start"], "end": row.data["end"], "device_id": body.get("device_id"),
+                      "previous_start": existing.data.get("start") if existing else None,
+                      "previous_end": existing.data.get("end") if existing else None,
+                      "previous_etag": existing.data.get("etag") if existing else None, "action": "upsert"}
             save(db, user, "binding", row.id, {**action, "provider": target, "status": "pending"})
             if target == "google":
                 if not db.get(Entity, (user, "connection", "google")):
@@ -431,6 +434,19 @@ def export(body: dict, user: User, key: Key):
             else:
                 save(db, user, "calendar_action", row.id, {**action, "status": "pending"})
                 actions.append({"action_id": row.id})
+        # A reschedule may remove old slots. The same explicit export approval
+        # includes removing obsolete Etsgo events at the selected destination.
+        for binding in entities(db, user, "binding"):
+            planned = db.get(Entity, (user, "planned", binding.id))
+            if not planned or not planned.deleted or binding.data["provider"] != body["target"] or binding.data.get("status") == "removed":
+                continue
+            action = {**binding.data, "action": "delete", "previous_etag": binding.data.get("etag"),
+                      "revision": planned.version, "device_id": body.get("device_id")}
+            if body["target"] == "google":
+                actions.append(new_job(db, user, "calendar", action, "remove:"+binding.id+":"+str(planned.version), False))
+            else:
+                save(db, user, "calendar_action", binding.id, {**action, "status": "pending"})
+                actions.append({"action_id": binding.id})
         return remember(db, user, "export:"+key, body, {"actions": actions})
 
 
@@ -448,7 +464,9 @@ def calendar_result(identity: str, body: dict, user: User):
         row = db.get(Entity, (user, "calendar_action", identity))
         if not row or row.data["device_id"] != body.get("device_id"):
             raise Problem(404, "not_found")
+        if row.data["revision"] != body.get("revision"):
+            raise Problem(409, "calendar_action_stale")
         save(db, user, "calendar_action", identity, {**row.data, "status": "synced"})
-        save(db, user, "binding", identity, {**row.data, "provider": "eventkit", "status": "synced",
+        save(db, user, "binding", identity, {**row.data, "provider": "eventkit", "status": "removed" if row.data.get("action") == "delete" else "synced",
              "external_id": body["external_id"]})
     return {"saved": True}

@@ -96,9 +96,20 @@ final class CalendarService {
             let predicate = store.predicateForEvents(withStart: start.addingTimeInterval(-365*86400),
                 end: end.addingTimeInterval(365*86400), calendars: nil)
             let existing = store.events(matching: predicate).first { $0.notes?.contains(marker) == true }
+            if action["action"] as? String == "delete" {
+                if let existing { try store.remove(existing, span: .thisEvent) }
+                _ = try await api.request("POST", "/v1/calendar/actions/"+id+"/result",
+                    ["device_id": api.deviceID, "external_id": existing?.eventIdentifier ?? "", "revision": action["revision"] as? Int ?? 1])
+                continue
+            }
             let event = existing ?? EKEvent(eventStore: store)
             if let existing, abs(existing.startDate.timeIntervalSince(start)) > 1 || abs(existing.endDate.timeIntervalSince(end)) > 1 {
-                throw BackendFailure(code: "calendar_reconcile_required")
+                guard let oldStart = SyncCoordinator.shared.date(action["previous_start"]),
+                      let oldEnd = SyncCoordinator.shared.date(action["previous_end"]),
+                      abs(existing.startDate.timeIntervalSince(oldStart)) < 1,
+                      abs(existing.endDate.timeIntervalSince(oldEnd)) < 1 else {
+                    throw BackendFailure(code: "calendar_reconcile_required")
+                }
             }
             if existing == nil {
                 let selectedID = UserDefaults.standard.string(forKey: "eventkitOutputCalendar")

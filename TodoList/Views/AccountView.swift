@@ -19,7 +19,7 @@ struct AccountView: View {
                     TextField("https://api.example.com", text: $backendURL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
-                Section(L("Đăng nhập", "Sign in")) {
+                Section {
                     TextField("Email", text: $email).keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     if sent { TextField(L("Mã OTP", "OTP code"), text: $code).keyboardType(.numberPad) }
@@ -36,6 +36,8 @@ struct AccountView: View {
                             } catch { errorText = error.localizedDescription }
                         }
                     }.disabled(busy || email.isEmpty || (sent && code.isEmpty))
+                } header: {
+                    Text(L("Đăng nhập", "Sign in"))
                 } footer: {
                     Text(L("Khi xác nhận, công việc và context trên máy sẽ được đồng bộ vào tài khoản này. AI cần kết nối mạng.",
                            "Verifying will synchronize local tasks and context into this account. AI needs a network connection."))
