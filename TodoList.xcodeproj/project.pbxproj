@@ -179,7 +179,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Việc cần làm";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và ghi các khối công việc đã xếp vào Lịch.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và, khi bạn duyệt, ghi các phiên học vào Lịch.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ứng dụng dùng micro để bạn nhập yêu cầu bằng giọng nói.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Ứng dụng chuyển giọng nói của bạn thành văn bản để bạn xem và sửa trước khi gửi.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -208,7 +210,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Việc cần làm";
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và ghi các khối công việc đã xếp vào Lịch.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và, khi bạn duyệt, ghi các phiên học vào Lịch.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ứng dụng dùng micro để bạn nhập yêu cầu bằng giọng nói.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Ứng dụng chuyển giọng nói của bạn thành văn bản để bạn xem và sửa trước khi gửi.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

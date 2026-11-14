@@ -7,12 +7,14 @@ struct TodoListView: View {
 
     @State private var filter: TaskCategory?
     @State private var showDone = false
+    @State private var searching = false
+    @State private var searchText = ""
     @State private var captureText = ""
     @State private var isWorking = false
     @State private var banner: String?
     @State private var showingNewItem = false
     @State private var editingItem: TodoItem?
-    @FocusState private var captureFocused: Bool
+    @State private var startingItem: TodoItem?
 
     /// Chỉ công việc gốc; các bước nhỏ hiển thị bên trong công việc cha.
     private var items: [TodoItem] {
@@ -20,8 +22,14 @@ struct TodoListView: View {
     }
 
     private var visibleItems: [TodoItem] {
-        guard let filter else { return items }
-        return items.filter { $0.category == filter }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return items.filter { item in
+            (filter == nil || item.category == filter)
+                && (query.isEmpty
+                    || item.title.localizedCaseInsensitiveContains(query)
+                    || item.notes.localizedCaseInsensitiveContains(query)
+                    || item.subtasks.contains { $0.title.localizedCaseInsensitiveContains(query) })
+        }
     }
 
     /// Chưa xong: ưu tiên cao trước, rồi hạn gần nhất, rồi mới tạo nhất.
@@ -56,6 +64,7 @@ struct TodoListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if searching { searchField }
             progress
             chips
 
@@ -72,7 +81,7 @@ struct TodoListView: View {
                             withAnimation { showDone.toggle() }
                         } label: {
                             HStack(spacing: 6) {
-                                Eyebrow(text: "Đã xong (\(doneItems.count))")
+                                Eyebrow(text: L("Đã xong", "Done") + " (\(doneItems.count))")
                                 Image(systemName: showDone ? "chevron.down" : "chevron.right")
                                     .font(.system(size: 11, weight: .bold))
                                     .foregroundStyle(Theme.muted)
@@ -94,23 +103,20 @@ struct TodoListView: View {
             .scrollDismissesKeyboard(.interactively)
 
             if let banner {
-                Text(banner)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.ink, lineWidth: 1.5))
+                Banner(text: banner)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
                     .onTapGesture { self.banner = nil }
             } else {
-                Text("Gõ như đang nói, AI sẽ tách việc, đặt hạn và phân loại.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 8)
+                Text(L(
+                    "Gõ hoặc nói như bình thường, AI sẽ tách việc, đặt hạn và phân loại.",
+                    "Type or speak naturally; AI splits it into tasks, sets dates and sorts them."
+                ))
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
             }
 
             captureBar
@@ -122,40 +128,46 @@ struct TodoListView: View {
         .sheet(item: $editingItem) { item in
             TodoEditorView(item: item)
         }
+        .fullScreenCover(item: $startingItem) { item in
+            PomodoroView(item: item)
+        }
     }
 
     // MARK: - Các phần của màn hình
 
+    private func roundButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 36, height: 36)
+                .background(Theme.card, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.line, lineWidth: 1.5))
+        }
+        .accessibilityLabel(label)
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Eyebrow(text: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+            Eyebrow(text: dayText(.now))
             HStack(alignment: .bottom, spacing: 8) {
-                Text("Việc cần làm")
+                Text(L("Việc cần làm", "To do"))
                     .font(Theme.display)
                     .tracking(-0.6)
                     .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Spacer(minLength: 8)
-                Button {
+                roundButton("sparkles", label: L("AI đề xuất ưu tiên", "AI priority suggestions")) {
                     prioritizeWithAI()
-                } label: {
-                    Label("Ưu tiên", systemImage: "sparkles")
-                        .font(.system(size: 13, weight: .semibold))
-                        .padding(.horizontal, 12)
-                        .frame(height: 36)
-                        .background(Theme.card, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1.5))
                 }
                 .disabled(isWorking || items.allSatisfy(\.isDone))
-                Button {
-                    showingNewItem = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .bold))
-                        .frame(width: 36, height: 36)
-                        .background(Theme.card, in: Circle())
-                        .overlay(Circle().strokeBorder(Theme.line, lineWidth: 1.5))
+                roundButton("magnifyingglass", label: L("Tìm kiếm", "Search")) {
+                    withAnimation { searching.toggle() }
+                    if !searching { searchText = "" }
                 }
-                .accessibilityLabel("Thêm công việc bằng form")
+                roundButton("plus", label: L("Thêm công việc bằng form", "Add a task with the form")) {
+                    showingNewItem = true
+                }
             }
             .foregroundStyle(Theme.ink)
         }
@@ -164,17 +176,29 @@ struct TodoListView: View {
         .padding(.bottom, 12)
     }
 
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.muted)
+            TextField(L("Tìm công việc", "Search tasks"), text: $searchText)
+                .foregroundStyle(Theme.ink)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+    }
+
     private var progress: some View {
         let done = items.filter(\.isDone).count
         let fraction = items.isEmpty ? 0 : Double(done) / Double(items.count)
         return VStack(spacing: 8) {
             HStack {
-                Text("\(done)/\(items.count)").fontWeight(.semibold).foregroundStyle(Theme.ink)
-                    + Text(" việc đã xong")
+                Text("\(done)/\(items.count) " + L("việc đã xong", "tasks done"))
                 Spacer()
-                Text("Còn ") + Text(durationText(remainingMinutes)).fontWeight(.semibold).foregroundStyle(Theme.ink)
+                Text(L("Còn ", "Left: ") + durationText(remainingMinutes))
             }
-            .font(.system(size: 13).monospacedDigit())
+            .font(.system(size: 13, weight: .medium).monospacedDigit())
             .foregroundStyle(Theme.muted)
 
             GeometryReader { geometry in
@@ -192,7 +216,7 @@ struct TodoListView: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(title: "Tất cả", count: items.filter { !$0.isDone }.count, category: nil)
+                chip(title: L("Tất cả", "All"), count: items.filter { !$0.isDone }.count, category: nil)
                 ForEach(usedCategories) { category in
                     chip(
                         title: category.title,
@@ -230,12 +254,18 @@ struct TodoListView: View {
     private func card(for item: TodoItem) -> some View {
         TodoRowView(item: item) {
             editingItem = item
+        } onStart: {
+            // Việc có bước nhỏ thì bắt đầu từ bước chưa xong đầu tiên.
+            startingItem = item.sortedSubtasks.first { !$0.isDone } ?? item
         }
         .contextMenu {
-            Button(item.isDone ? "Đánh dấu chưa xong" : "Đánh dấu đã xong", systemImage: "checkmark") {
-                item.isDone.toggle()
+            Button(
+                item.isDone ? L("Mở lại", "Reopen") : L("Đánh dấu đã xong", "Mark as done"),
+                systemImage: "checkmark"
+            ) {
+                context.setDone(item, !item.isDone)
             }
-            Button("Xoá", systemImage: "trash", role: .destructive) {
+            Button(L("Xoá", "Delete"), systemImage: "trash", role: .destructive) {
                 context.deleteTodo(item)
             }
         }
@@ -243,30 +273,39 @@ struct TodoListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 4) {
-            Text(items.isEmpty ? "Chưa có việc nào" : "Xong hết rồi")
-                .font(Theme.dayTitle)
-                .foregroundStyle(Theme.ink)
-            Text("Gõ một câu vào ô bên dưới để thêm việc.")
-                .font(.system(size: 14))
-                .foregroundStyle(Theme.muted)
+            Text(
+                items.isEmpty ? L("Chưa có việc nào", "Nothing here yet")
+                    : (searchText.isEmpty ? L("Xong hết rồi", "All done") : L("Không tìm thấy", "No matches"))
+            )
+            .font(Theme.dayTitle)
+            .foregroundStyle(Theme.ink)
+            Text(L(
+                "Gõ một câu vào ô bên dưới, hoặc mở tab Kế hoạch để lập kế hoạch học.",
+                "Type a sentence below, or open the Plan tab to plan something you want to learn."
+            ))
+            .font(.system(size: 14))
+            .multilineTextAlignment(.center)
+            .foregroundStyle(Theme.muted)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 36)
     }
 
     private var captureBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             TextField(
                 "",
                 text: $captureText,
-                prompt: Text("Thứ sáu 3 giờ chiều họp khách, tối đi tập gym").foregroundStyle(Theme.barMuted)
+                prompt: Text(L("Thứ sáu 3 giờ chiều nộp bài tập Toán", "Hand in math homework Friday 3pm"))
+                    .foregroundStyle(Theme.barMuted)
             )
-            .focused($captureFocused)
             .submitLabel(.send)
             .onSubmit(capture)
             .foregroundStyle(Theme.onBar)
             .tint(Theme.mark)
             .disabled(isWorking)
+
+            MicButton(text: $captureText, tint: Theme.onBar)
 
             Button(action: capture) {
                 Group {
@@ -282,7 +321,7 @@ struct TodoListView: View {
             }
             .buttonStyle(.plain)
             .disabled(isWorking)
-            .accessibilityLabel("Thêm")
+            .accessibilityLabel(L("Thêm", "Add"))
         }
         .padding(.leading, 16)
         .padding(.trailing, 6)
@@ -299,7 +338,7 @@ struct TodoListView: View {
         let text = captureText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isWorking else { return }
         isWorking = true
-        banner = "AI đang đọc câu của bạn…"
+        banner = L("AI đang đọc câu của bạn…", "AI is reading your sentence…")
         Task { @MainActor in
             defer { isWorking = false }
             do {
@@ -320,13 +359,14 @@ struct TodoListView: View {
                 }
                 captureText = ""
                 filter = nil
-                banner = "Đã thêm \(parsed.count) việc: " + names.joined(separator: ", ") + "."
+                banner = L("Đã thêm \(parsed.count) việc: ", "Added \(parsed.count): ") + names.joined(separator: ", ") + "."
             } catch {
-                // Không gọi được AI thì vẫn giữ lại điều người dùng vừa gõ.
+                // Không gọi được AI thì vẫn giữ lại điều người dùng vừa gõ; tạo việc không phụ thuộc AI.
                 context.insert(TodoItem(title: text))
                 captureText = ""
                 filter = nil
-                banner = error.localizedDescription + " Đã thêm nguyên văn câu của bạn vào nhóm Khác."
+                banner = error.localizedDescription
+                    + L(" Đã thêm nguyên văn câu của bạn vào nhóm Khác.", " Your sentence was added as-is under Other.")
             }
         }
     }
@@ -340,7 +380,7 @@ struct TodoListView: View {
             var entry: [String: Any] = [
                 "id": String(index + 1),
                 "title": task.title,
-                "category": task.category.title,
+                "list": task.category.rawValue,
                 "estimated_minutes": task.subtasks.isEmpty
                     ? task.estimatedMinutes
                     : task.subtasks.filter { !$0.isDone }.reduce(0) { $0 + $1.estimatedMinutes },
@@ -355,7 +395,7 @@ struct TodoListView: View {
         else { return }
 
         isWorking = true
-        banner = "AI đang xem danh sách của bạn…"
+        banner = L("AI đang xem danh sách của bạn…", "AI is looking at your list…")
         Task { @MainActor in
             defer { isWorking = false }
             do {
@@ -370,8 +410,10 @@ struct TodoListView: View {
                     task.priority = priority
                     task.aiReason = suggestion.reason
                 }
-                banner = "AI đã xem \(targets.count) việc và đổi mức ưu tiên của \(changed) việc. "
-                    + "Mở từng việc để xem lý do."
+                banner = L(
+                    "AI đã xem \(targets.count) việc và đổi mức ưu tiên của \(changed) việc. Mở từng việc để xem lý do.",
+                    "AI reviewed \(targets.count) tasks and changed the priority of \(changed). Open a task to see why."
+                )
             } catch {
                 banner = error.localizedDescription
             }
@@ -381,5 +423,5 @@ struct TodoListView: View {
 
 #Preview {
     TodoListView()
-        .modelContainer(for: TodoItem.self, inMemory: true)
+        .modelContainer(for: [TodoItem.self, ContextItem.self, FocusSession.self], inMemory: true)
 }

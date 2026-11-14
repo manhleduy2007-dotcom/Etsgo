@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Dùng cho cả thêm mới (`item == nil`) và chỉnh sửa.
+/// Dùng cho cả thêm mới (`item == nil`) và chỉnh sửa. Mọi thông tin ngoài tên đều có thể để trống.
 struct TodoEditorView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -15,10 +15,15 @@ struct TodoEditorView: View {
     @State private var dueDate: Date
     @State private var estimatedMinutes: Int
     @State private var category: TaskCategory
+    @State private var remind: Bool
+    @State private var repeatRule: RepeatRule
+    @State private var focusMinutes: Int
+    @State private var breakMinutes: Int
 
     @State private var newSubtaskTitle = ""
     @State private var isBreakingDown = false
     @State private var errorMessage: String?
+    @State private var startingItem: TodoItem?
 
     init(item: TodoItem?) {
         self.item = item
@@ -28,7 +33,11 @@ struct TodoEditorView: View {
         _hasDueDate = State(initialValue: item?.dueDate != nil)
         _dueDate = State(initialValue: item?.dueDate ?? Date.now.addingTimeInterval(3600))
         _estimatedMinutes = State(initialValue: item?.estimatedMinutes ?? 30)
-        _category = State(initialValue: item?.category ?? .other)
+        _category = State(initialValue: item?.category ?? .study)
+        _remind = State(initialValue: item?.remind ?? false)
+        _repeatRule = State(initialValue: item?.repeatRule ?? .none)
+        _focusMinutes = State(initialValue: item?.focusMinutes ?? 25)
+        _breakMinutes = State(initialValue: item?.breakMinutes ?? 5)
     }
 
     private var trimmedTitle: String {
@@ -39,33 +48,56 @@ struct TodoEditorView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Tên công việc", text: $title)
-                    TextField("Ghi chú", text: $notes, axis: .vertical)
-                        .lineLimit(3...6)
+                    TextField(L("Tên công việc", "Task name"), text: $title)
+                    TextField(L("Ghi chú", "Notes"), text: $notes, axis: .vertical)
+                        .lineLimit(2...6)
                 }
 
                 Section {
-                    Picker("Phân loại", selection: $category) {
-                        ForEach(TaskCategory.allCases) { category in
-                            Label {
-                                Text(category.title)
-                            } icon: {
-                                Image(systemName: "circle.fill").foregroundStyle(category.color)
-                            }
-                            .tag(category)
+                    Picker(L("Danh sách", "List"), selection: $category) {
+                        ForEach(TaskCategory.allCases) { option in
+                            Text(option.title).tag(option)
                         }
                     }
-                    Picker("Ưu tiên", selection: $priority) {
+                    Picker(L("Ưu tiên", "Priority"), selection: $priority) {
                         ForEach(Priority.allCases) { Text($0.title).tag($0) }
                     }
-                    Stepper("Thời lượng: \(estimatedMinutes) phút", value: $estimatedMinutes, in: 15...480, step: 15)
-                    Toggle("Có hạn chót", isOn: $hasDueDate.animation())
-                    if hasDueDate {
-                        DatePicker("Hạn chót", selection: $dueDate)
-                    }
+                    Stepper(
+                        L("Thời lượng: ", "Duration: ") + durationText(estimatedMinutes),
+                        value: $estimatedMinutes, in: 15...480, step: 15
+                    )
                 } footer: {
                     if let reason = item?.aiReason, !reason.isEmpty {
-                        Text("Lý do AI đề xuất mức ưu tiên: \(reason)")
+                        Text(L("Lý do AI đề xuất mức ưu tiên: ", "Why AI suggested this priority: ") + reason)
+                    }
+                }
+
+                Section {
+                    Toggle(L("Có hạn chót", "Has a due date"), isOn: $hasDueDate.animation())
+                    if hasDueDate {
+                        DatePicker(L("Hạn chót", "Due"), selection: $dueDate)
+                    }
+                    Toggle(L("Nhắc việc", "Remind me"), isOn: $remind)
+                    Picker(L("Lặp lại", "Repeat"), selection: $repeatRule) {
+                        ForEach(RepeatRule.allCases) { Text($0.title).tag($0) }
+                    }
+                } footer: {
+                    Text(L(
+                        "Lời nhắc báo vào giờ đã xếp lịch, nếu chưa xếp thì vào hạn chót. Việc lặp lại tạo bản tiếp theo khi bạn hoàn thành.",
+                        "The reminder fires at the planned time, or at the due date if none. A repeating task creates its next copy when you complete it."
+                    ))
+                }
+
+                Section(L("Phiên tập trung", "Focus session")) {
+                    Stepper(L("Tập trung: ", "Focus: ") + durationText(focusMinutes), value: $focusMinutes, in: 5...90, step: 5)
+                    Stepper(L("Nghỉ: ", "Break: ") + durationText(breakMinutes), value: $breakMinutes, in: 1...30)
+                    if let item, !item.isDone {
+                        Button {
+                            applyEdits(to: item)
+                            startingItem = item.sortedSubtasks.first { !$0.isDone } ?? item
+                        } label: {
+                            Label(L("Bắt đầu phiên học", "Start a focus session"), systemImage: "play.fill")
+                        }
                     }
                 }
 
@@ -73,39 +105,40 @@ struct TodoEditorView: View {
                     subtaskSection(for: item)
 
                     Section {
-                        Button("Xoá công việc", role: .destructive) {
+                        Button(L("Xoá công việc", "Delete task"), role: .destructive) {
                             context.deleteTodo(item)
                             dismiss()
                         }
-                    }
-                } else {
-                    Section {
-                    } footer: {
-                        Text("Lưu công việc rồi mở lại để chia thành các bước nhỏ bằng AI.")
                     }
                 }
             }
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .tint(Theme.ink)
-            .navigationTitle(item == nil ? "Việc mới" : "Sửa công việc")
+            .navigationTitle(item == nil ? L("Việc mới", "New task") : L("Sửa công việc", "Edit task"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Huỷ") { dismiss() }
+                    Button(L("Huỷ", "Cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Lưu", action: save)
+                    Button(L("Lưu", "Save"), action: save)
                         .disabled(trimmedTitle.isEmpty)
                 }
             }
             .alert(
-                "Không chia nhỏ được",
+                L("Không chia nhỏ được", "Could not break it down"),
                 isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
             ) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .fullScreenCover(item: $startingItem) { target in
+                PomodoroView(item: target)
+            }
+            .onChange(of: remind) { _, isOn in
+                if isOn { Task { _ = await NotificationService.requestAccess() } }
             }
         }
     }
@@ -115,7 +148,7 @@ struct TodoEditorView: View {
             ForEach(item.sortedSubtasks) { sub in
                 HStack {
                     Button {
-                        toggle(sub, in: item)
+                        context.setDone(sub, !sub.isDone)
                     } label: {
                         Image(systemName: sub.isDone ? "checkmark.square.fill" : "square")
                             .foregroundStyle(sub.isDone ? item.category.color : Theme.muted)
@@ -123,11 +156,11 @@ struct TodoEditorView: View {
                     .buttonStyle(.plain)
                     Text(sub.title)
                         .strikethrough(sub.isDone)
-                        .foregroundStyle(sub.isDone ? .secondary : .primary)
+                        .foregroundStyle(sub.isDone ? Theme.muted : Theme.ink)
                     Spacer(minLength: 8)
-                    Text("\(sub.estimatedMinutes) phút")
+                    Text(durationText(sub.estimatedMinutes))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.muted)
                 }
             }
             .onDelete { offsets in
@@ -135,7 +168,7 @@ struct TodoEditorView: View {
                 offsets.map { subs[$0] }.forEach { context.deleteTodo($0) }
             }
 
-            TextField("Thêm bước…", text: $newSubtaskTitle)
+            TextField(L("Thêm bước…", "Add a step…"), text: $newSubtaskTitle)
                 .submitLabel(.done)
                 .onSubmit {
                     let text = newSubtaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,27 +183,20 @@ struct TodoEditorView: View {
                 if isBreakingDown {
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("AI đang chia nhỏ…")
+                        Text(L("AI đang chia nhỏ…", "AI is breaking it down…"))
                     }
                 } else {
-                    Label("AI chia nhỏ công việc", systemImage: "sparkles")
+                    Label(L("AI chia nhỏ công việc", "Break down with AI"), systemImage: "sparkles")
                 }
             }
             .disabled(isBreakingDown || trimmedTitle.isEmpty)
         } header: {
-            Text("Các bước nhỏ")
+            Text(L("Các bước", "Steps"))
         } footer: {
-            Text("Khi có các bước nhỏ, bộ xếp lịch sẽ xếp từng bước thay cho cả công việc.")
-        }
-    }
-
-    private func toggle(_ sub: TodoItem, in item: TodoItem) {
-        sub.isDone.toggle()
-        // Xong hết các bước thì công việc cha cũng xong.
-        if item.subtasks.allSatisfy(\.isDone) {
-            item.isDone = true
-        } else if !sub.isDone {
-            item.isDone = false
+            Text(L(
+                "Khi có các bước, lịch được xếp theo từng bước và giữ đúng thứ tự.",
+                "When a task has steps, each step is planned separately and in order."
+            ))
         }
     }
 
@@ -183,8 +209,7 @@ struct TodoEditorView: View {
             do {
                 let steps = try await AIService().breakdown(title: taskTitle, notes: taskNotes)
                 for step in steps {
-                    let minutes = min(max(step.estimatedMinutes, 15), 480)
-                    item.addSubtask(title: step.title, estimatedMinutes: minutes)
+                    item.addSubtask(title: step.title, estimatedMinutes: min(max(step.estimatedMinutes, 15), 480))
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -192,25 +217,27 @@ struct TodoEditorView: View {
         }
     }
 
+    private func applyEdits(to target: TodoItem) {
+        target.title = trimmedTitle.isEmpty ? target.title : trimmedTitle
+        target.notes = notes
+        target.priority = priority
+        target.dueDate = hasDueDate ? dueDate : nil
+        target.estimatedMinutes = estimatedMinutes
+        target.category = category
+        target.remind = remind
+        target.repeatRule = repeatRule
+        target.focusMinutes = focusMinutes
+        target.breakMinutes = breakMinutes
+        NotificationService.scheduleReminder(for: target)
+    }
+
     private func save() {
-        let due = hasDueDate ? dueDate : nil
         if let item {
-            item.title = trimmedTitle
-            item.notes = notes
-            item.priority = priority
-            item.dueDate = due
-            item.estimatedMinutes = estimatedMinutes
-            item.category = category
+            applyEdits(to: item)
         } else {
-            let newItem = TodoItem(
-                title: trimmedTitle,
-                notes: notes,
-                dueDate: due,
-                priority: priority,
-                estimatedMinutes: estimatedMinutes
-            )
-            newItem.category = category
+            let newItem = TodoItem(title: trimmedTitle)
             context.insert(newItem)
+            applyEdits(to: newItem)
         }
         dismiss()
     }
@@ -218,5 +245,5 @@ struct TodoEditorView: View {
 
 #Preview {
     TodoEditorView(item: nil)
-        .modelContainer(for: TodoItem.self, inMemory: true)
+        .modelContainer(for: [TodoItem.self, ContextItem.self, FocusSession.self], inMemory: true)
 }

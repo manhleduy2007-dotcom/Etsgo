@@ -43,15 +43,97 @@ enum Theme {
     static let eyebrow = Font.system(size: 12, weight: .semibold)
 }
 
-/// "45p", "1g 30p".
+/// "45p", "1g 30p" (tiếng Việt) hoặc "45m", "1h 30m" (tiếng Anh).
 func durationText(_ minutes: Int) -> String {
-    guard minutes >= 60 else { return "\(minutes)p" }
+    let hour = L("g", "h")
+    let minute = L("p", "m")
+    guard minutes >= 60 else { return "\(minutes)\(minute)" }
     let rest = minutes % 60
-    return rest == 0 ? "\(minutes / 60)g" : "\(minutes / 60)g \(rest)p"
+    return rest == 0 ? "\(minutes / 60)\(hour)" : "\(minutes / 60)\(hour) \(rest)\(minute)"
 }
 
 func shortDateText(_ date: Date) -> String {
-    date.formatted(.dateTime.weekday(.abbreviated).day().month(.defaultDigits).hour().minute())
+    date.formatted(
+        Date.FormatStyle().weekday(.abbreviated).day().month(.defaultDigits).hour().minute()
+            .locale(AppLanguage.current.locale)
+    )
+}
+
+func timeText(_ date: Date) -> String {
+    date.formatted(Date.FormatStyle().hour().minute().locale(AppLanguage.current.locale))
+}
+
+func dayText(_ date: Date, weekdayOnly: Bool = false) -> String {
+    let style = weekdayOnly
+        ? Date.FormatStyle().weekday(.wide)
+        : Date.FormatStyle().weekday(.wide).day().month(.wide)
+    return date.formatted(style.locale(AppLanguage.current.locale))
+}
+
+/// Thẻ thông báo viền mực dùng chung cho các màn hình.
+struct Banner: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(Theme.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.ink, lineWidth: 1.5))
+    }
+}
+
+/// Nút chính màu vàng.
+struct PrimaryLabel: View {
+    let title: String
+    var systemImage: String?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage { Image(systemName: systemImage) }
+            Text(title)
+        }
+        .font(.system(size: 16, weight: .bold))
+        .foregroundStyle(Theme.onMark)
+        .frame(maxWidth: .infinity)
+        .frame(height: 48)
+        .background(Theme.mark, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+/// Nút micro: đọc để nhập, văn bản hiện vào ô để người dùng sửa trước khi gửi.
+struct MicButton: View {
+    @Binding var text: String
+    var tint: Color = Theme.ink
+    @StateObject private var recognizer = SpeechRecognizer()
+    @State private var base = ""
+
+    var body: some View {
+        Button {
+            if !recognizer.isRecording { base = text.isEmpty ? "" : text + " " }
+            recognizer.toggle()
+        } label: {
+            Image(systemName: recognizer.isRecording ? "stop.circle.fill" : "mic.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(recognizer.isRecording ? Theme.red : tint)
+                .frame(width: 36, height: 40)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(recognizer.isRecording ? L("Dừng ghi âm", "Stop recording") : L("Nhập bằng giọng nói", "Dictate"))
+        .onChange(of: recognizer.transcript) { _, transcript in
+            if recognizer.isRecording || !transcript.isEmpty { text = base + transcript }
+        }
+        .alert(
+            L("Giọng nói", "Voice"),
+            isPresented: Binding(get: { recognizer.errorText != nil }, set: { if !$0 { recognizer.errorText = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(recognizer.errorText ?? "")
+        }
+    }
 }
 
 struct Eyebrow: View {
@@ -123,7 +205,7 @@ struct CheckBox: View {
                 .frame(width: 26, height: 26)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isOn ? "Đánh dấu chưa xong" : "Đánh dấu đã xong")
+        .accessibilityLabel(isOn ? L("Đánh dấu chưa xong", "Mark as not done") : L("Đánh dấu đã xong", "Mark as done"))
     }
 }
 
