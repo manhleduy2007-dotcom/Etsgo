@@ -13,6 +13,11 @@ struct TodoEditorView: View {
     @State private var priority: Priority
     @State private var hasDueDate: Bool
     @State private var dueDate: Date
+    @State private var estimatedMinutes: Int
+
+    @State private var newSubtaskTitle = ""
+    @State private var isBreakingDown = false
+    @State private var errorMessage: String?
 
     init(item: TodoItem?) {
         self.item = item
@@ -21,6 +26,7 @@ struct TodoEditorView: View {
         _priority = State(initialValue: item?.priority ?? .medium)
         _hasDueDate = State(initialValue: item?.dueDate != nil)
         _dueDate = State(initialValue: item?.dueDate ?? Date.now.addingTimeInterval(3600))
+        _estimatedMinutes = State(initialValue: item?.estimatedMinutes ?? 30)
     }
 
     private var trimmedTitle: String {
@@ -40,18 +46,30 @@ struct TodoEditorView: View {
                     Picker("Ưu tiên", selection: $priority) {
                         ForEach(Priority.allCases) { Text($0.title).tag($0) }
                     }
+                    Stepper("Thời lượng: \(estimatedMinutes) phút", value: $estimatedMinutes, in: 15...480, step: 15)
                     Toggle("Có hạn chót", isOn: $hasDueDate.animation())
                     if hasDueDate {
                         DatePicker("Hạn chót", selection: $dueDate)
                     }
+                } footer: {
+                    if let reason = item?.aiReason, !reason.isEmpty {
+                        Label(reason, systemImage: "sparkles")
+                    }
                 }
 
                 if let item {
+                    subtaskSection(for: item)
+
                     Section {
                         Button("Xoá công việc", role: .destructive) {
-                            context.delete(item)
+                            context.deleteTodo(item)
                             dismiss()
                         }
+                    }
+                } else {
+                    Section {
+                    } footer: {
+                        Text("Lưu công việc rồi mở lại để chia thành các bước nhỏ bằng AI.")
                     }
                 }
             }
@@ -66,6 +84,96 @@ struct TodoEditorView: View {
                         .disabled(trimmedTitle.isEmpty)
                 }
             }
+            .alert(
+                "Không chia nhỏ được",
+                isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func subtaskSection(for item: TodoItem) -> some View {
+        Section {
+            ForEach(item.sortedSubtasks) { sub in
+                HStack {
+                    Button {
+                        toggle(sub, in: item)
+                    } label: {
+                        Image(systemName: sub.isDone ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(sub.isDone ? Color.green : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    Text(sub.title)
+                        .strikethrough(sub.isDone)
+                        .foregroundStyle(sub.isDone ? .secondary : .primary)
+                    Spacer(minLength: 8)
+                    Text("\(sub.estimatedMinutes) phút")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .onDelete { offsets in
+                let subs = item.sortedSubtasks
+                offsets.map { subs[$0] }.forEach { context.deleteTodo($0) }
+            }
+
+            TextField("Thêm bước…", text: $newSubtaskTitle)
+                .submitLabel(.done)
+                .onSubmit {
+                    let text = newSubtaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { return }
+                    item.addSubtask(title: text)
+                    newSubtaskTitle = ""
+                }
+
+            Button {
+                breakDown(item)
+            } label: {
+                if isBreakingDown {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("AI đang chia nhỏ…")
+                    }
+                } else {
+                    Label("AI chia nhỏ công việc", systemImage: "sparkles")
+                }
+            }
+            .disabled(isBreakingDown || trimmedTitle.isEmpty)
+        } header: {
+            Text("Các bước nhỏ")
+        } footer: {
+            Text("Khi có các bước nhỏ, bộ xếp lịch sẽ xếp từng bước thay cho cả công việc.")
+        }
+    }
+
+    private func toggle(_ sub: TodoItem, in item: TodoItem) {
+        sub.isDone.toggle()
+        // Xong hết các bước thì công việc cha cũng xong.
+        if item.subtasks.allSatisfy(\.isDone) {
+            item.isDone = true
+        } else if !sub.isDone {
+            item.isDone = false
+        }
+    }
+
+    private func breakDown(_ item: TodoItem) {
+        let taskTitle = trimmedTitle
+        let taskNotes = notes
+        isBreakingDown = true
+        Task { @MainActor in
+            defer { isBreakingDown = false }
+            do {
+                let steps = try await AIService().breakdown(title: taskTitle, notes: taskNotes)
+                for step in steps {
+                    let minutes = min(max(step.estimatedMinutes, 15), 480)
+                    item.addSubtask(title: step.title, estimatedMinutes: minutes)
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -76,9 +184,16 @@ struct TodoEditorView: View {
             item.notes = notes
             item.priority = priority
             item.dueDate = due
+            item.estimatedMinutes = estimatedMinutes
         } else {
             context.insert(
-                TodoItem(title: trimmedTitle, notes: notes, dueDate: due, priority: priority)
+                TodoItem(
+                    title: trimmedTitle,
+                    notes: notes,
+                    dueDate: due,
+                    priority: priority,
+                    estimatedMinutes: estimatedMinutes
+                )
             )
         }
         dismiss()

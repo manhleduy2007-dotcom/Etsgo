@@ -11,14 +11,21 @@ enum TodoFilter: String, CaseIterable, Identifiable {
 
 struct TodoListView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \TodoItem.createdAt, order: .reverse) private var items: [TodoItem]
+    @Query(sort: \TodoItem.createdAt, order: .reverse) private var allItems: [TodoItem]
 
     @State private var searchText = ""
     @State private var filter: TodoFilter = .all
     @State private var quickTitle = ""
     @State private var showingNewItem = false
     @State private var editingItem: TodoItem?
+    @State private var isPrioritizing = false
+    @State private var alertMessage: String?
     @FocusState private var quickAddFocused: Bool
+
+    /// Chỉ công việc gốc; các bước nhỏ hiển thị bên trong công việc cha.
+    private var items: [TodoItem] {
+        allItems.filter { $0.parent == nil }
+    }
 
     private var matchingItems: [TodoItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,14 +86,24 @@ struct TodoListView: View {
                         if !doneItems.isEmpty {
                             Divider()
                             Button("Xoá việc đã xong", systemImage: "trash", role: .destructive) {
-                                doneItems.forEach(context.delete)
+                                doneItems.forEach { context.deleteTodo($0) }
                             }
                         }
                     } label: {
                         Label("Lọc", systemImage: "line.3.horizontal.decrease.circle")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if isPrioritizing {
+                        ProgressView()
+                    } else {
+                        Button {
+                            prioritizeWithAI()
+                        } label: {
+                            Label("AI đề xuất ưu tiên", systemImage: "sparkles")
+                        }
+                        .disabled(items.allSatisfy(\.isDone))
+                    }
                     Button {
                         showingNewItem = true
                     } label: {
@@ -99,6 +116,14 @@ struct TodoListView: View {
             }
             .sheet(item: $editingItem) { item in
                 TodoEditorView(item: item)
+            }
+            .alert(
+                "AI đề xuất ưu tiên",
+                isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(alertMessage ?? "")
             }
         }
     }
@@ -138,7 +163,7 @@ struct TodoListView: View {
             }
             .swipeActions(edge: .trailing) {
                 Button("Xoá", systemImage: "trash", role: .destructive) {
-                    context.delete(item)
+                    context.deleteTodo(item)
                 }
             }
             .swipeActions(edge: .leading) {
@@ -159,6 +184,52 @@ struct TodoListView: View {
         context.insert(TodoItem(title: title))
         quickTitle = ""
         quickAddFocused = true
+    }
+
+    /// Gửi các việc chưa xong cho AI và áp dụng mức ưu tiên được đề xuất.
+    private func prioritizeWithAI() {
+        let targets = items.filter { !$0.isDone }
+        guard !targets.isEmpty else { return }
+
+        let formatter = ISO8601DateFormatter()
+        let payload: [[String: Any]] = targets.enumerated().map { index, task in
+            var entry: [String: Any] = [
+                "id": String(index + 1),
+                "title": task.title,
+                "estimated_minutes": task.subtasks.isEmpty
+                    ? task.estimatedMinutes
+                    : task.subtasks.filter { !$0.isDone }.reduce(0) { $0 + $1.estimatedMinutes },
+                "current_priority": task.priority.apiName,
+            ]
+            if !task.notes.isEmpty { entry["notes"] = task.notes }
+            if let due = task.dueDate { entry["due"] = formatter.string(from: due) }
+            return entry
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+
+        isPrioritizing = true
+        Task { @MainActor in
+            defer { isPrioritizing = false }
+            do {
+                let suggestions = try await AIService().prioritize(tasksJSON: json)
+                var changed = 0
+                for suggestion in suggestions {
+                    guard let number = Int(suggestion.id), targets.indices.contains(number - 1),
+                          let priority = Priority(apiName: suggestion.priority)
+                    else { continue }
+                    let task = targets[number - 1]
+                    if task.priority != priority { changed += 1 }
+                    task.priority = priority
+                    task.aiReason = suggestion.reason
+                }
+                alertMessage = "Đã xem xét \(targets.count) việc, đổi mức ưu tiên của \(changed) việc. "
+                    + "Mở từng việc để xem lý do."
+            } catch {
+                alertMessage = error.localizedDescription
+            }
+        }
     }
 }
 

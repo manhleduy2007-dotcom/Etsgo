@@ -4,6 +4,10 @@ struct TodoRowView: View {
     @Bindable var item: TodoItem
     var onEdit: () -> Void
 
+    private var doneSubtasks: Int {
+        item.subtasks.filter(\.isDone).count
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
@@ -30,11 +34,26 @@ struct TodoRowView: View {
 
                 if let dueDate = item.dueDate {
                     Label(
-                        dueDate.formatted(date: .abbreviated, time: .shortened),
-                        systemImage: "calendar"
+                        "Hạn: " + dueDate.formatted(date: .abbreviated, time: .shortened),
+                        systemImage: "flag"
                     )
                     .font(.caption)
                     .foregroundStyle(item.isOverdue ? Color.red : Color.secondary)
+                }
+
+                if let start = item.scheduledStart, !item.isDone {
+                    Label(
+                        "Đã xếp: " + start.formatted(date: .abbreviated, time: .shortened),
+                        systemImage: "calendar"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                }
+
+                if !item.subtasks.isEmpty {
+                    Label("\(doneSubtasks)/\(item.subtasks.count) bước", systemImage: "list.bullet.indent")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
