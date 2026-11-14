@@ -26,6 +26,21 @@ struct SubtaskSuggestion: Decodable, Sendable {
     }
 }
 
+struct ParsedTask: Decodable, Sendable {
+    let title: String
+    let category: String
+    let priority: String
+    /// Giờ địa phương dạng yyyy-MM-dd'T'HH:mm, hoặc chuỗi rỗng.
+    let due: String
+    let estimatedMinutes: Int
+    let notes: String
+
+    enum CodingKeys: String, CodingKey {
+        case title, category, priority, due, notes
+        case estimatedMinutes = "estimated_minutes"
+    }
+}
+
 struct PrioritySuggestion: Decodable, Sendable {
     let id: String
     let priority: String
@@ -36,6 +51,69 @@ struct PrioritySuggestion: Decodable, Sendable {
 struct AIService: Sendable {
     static let model = "claude-opus-5-5"
     private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
+
+    private static let localDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        return formatter
+    }()
+
+    static func localDateString(_ date: Date) -> String {
+        localDateFormatter.string(from: date)
+    }
+
+    static func parseLocalDate(_ text: String) -> Date? {
+        localDateFormatter.date(from: String(text.prefix(16)))
+    }
+
+    /// Đọc một câu tự do, tách thành các công việc đã phân loại, có hạn, thời lượng và mức ưu tiên.
+    func parseTasks(text: String) async throws -> [ParsedTask] {
+        struct Output: Decodable { let tasks: [ParsedTask] }
+        let categories = TaskCategory.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+        let schema = """
+        {
+          "type": "object",
+          "properties": {
+            "tasks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "category": { "type": "string", "enum": [\(categories)] },
+                  "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+                  "due": { "type": "string" },
+                  "estimated_minutes": { "type": "integer" },
+                  "notes": { "type": "string" }
+                },
+                "required": ["title", "category", "priority", "due", "estimated_minutes", "notes"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["tasks"],
+          "additionalProperties": false
+        }
+        """
+        let legend = TaskCategory.allCases.map { "\($0.rawValue) = \($0.title)" }.joined(separator: "; ")
+        let system = """
+        Bạn là trợ lý trong một ứng dụng quản lý công việc. Người dùng gõ một câu tự do; hãy tách nó thành các \
+        công việc riêng (một câu có thể chứa nhiều việc) và điền thông tin cho từng việc.
+        - title: tên việc ngắn gọn, bằng ngôn ngữ của người dùng, không lặp lại ngày giờ.
+        - category: đúng một nhóm (\(legend)). Chỉ dùng other khi không nhóm nào hợp.
+        - priority: suy ra từ độ gấp và tầm quan trọng trong câu; không rõ thì medium.
+        - due: hạn chót hoặc giờ diễn ra theo giờ địa phương, dạng YYYY-MM-DDTHH:mm; chuỗi rỗng nếu câu không \
+        nhắc thời gian. Có ngày mà không có giờ thì dùng 09:00.
+        - estimated_minutes: thời lượng ước tính thực tế, tính bằng phút.
+        - notes: chi tiết phụ đáng giữ lại, hoặc chuỗi rỗng.
+        """
+        let now = Date.now
+        let weekday = now.formatted(.dateTime.weekday(.wide))
+        let user = "Bây giờ là \(Self.localDateString(now)) giờ địa phương, \(weekday).\nCâu của người dùng: \(text)"
+        let output: Output = try await complete(system: system, user: user, schema: schema)
+        return output.tasks
+    }
 
     /// Chia một công việc thành các bước nhỏ kèm thời lượng ước tính.
     func breakdown(title: String, notes: String) async throws -> [SubtaskSuggestion] {
@@ -100,14 +178,13 @@ struct AIService: Sendable {
         """
         let system = """
         Bạn là trợ lý lập kế hoạch trong một ứng dụng quản lý công việc. Người dùng đưa danh sách công việc chưa xong \
-        dưới dạng JSON (id, tiêu đề, ghi chú, hạn chót, thời lượng ước tính, mức ưu tiên hiện tại). \
+        dưới dạng JSON (id, tiêu đề, nhóm, ghi chú, hạn chót theo giờ địa phương, thời lượng ước tính, mức ưu tiên hiện tại). \
         Hãy đề xuất mức ưu tiên low, medium hoặc high cho từng việc, dựa trên độ gấp (hạn chót so với thời điểm hiện tại), \
         tầm quan trọng và khối lượng. Người dùng dùng kết quả để quyết định làm gì trước, nên các mức phải phân biệt \
         được với nhau: đừng xếp mọi thứ là high. Trả về đúng một mục cho mỗi id đã nhận, kèm lý do dài một câu \
         bằng ngôn ngữ của công việc.
         """
-        let now = ISO8601DateFormatter().string(from: .now)
-        let user = "Thời điểm hiện tại: \(now)\nDanh sách công việc:\n\(tasksJSON)"
+        let user = "Bây giờ là \(Self.localDateString(.now)) giờ địa phương.\nDanh sách công việc:\n\(tasksJSON)"
         let output: Output = try await complete(system: system, user: user, schema: schema)
         return output.items
     }

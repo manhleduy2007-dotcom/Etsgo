@@ -5,13 +5,14 @@
 ## Tính năng
 
 **Công việc**
-- Thêm nhanh ngay trên danh sách, hoặc bấm **+** để nhập ghi chú, mức ưu tiên, thời lượng ước tính và hạn chót
-- Đánh dấu xong, sửa, xoá, tìm kiếm, lọc theo trạng thái
+- Bấm **+** để nhập bằng form: ghi chú, nhóm, mức ưu tiên, thời lượng ước tính và hạn chót
+- Đánh dấu xong, sửa, xoá (nhấn giữ thẻ), lọc theo nhóm
 - Mỗi công việc có thể có các bước nhỏ; xong hết các bước thì công việc cũng xong
 
 **AI (Claude API)**
-- **Chia nhỏ công việc**: mở một công việc → *AI chia nhỏ công việc* → nhận các bước cụ thể kèm thời lượng ước tính
-- **Đề xuất ưu tiên**: nút ✨ trên danh sách → AI xem toàn bộ việc chưa xong, gán mức ưu tiên và ghi lý do cho từng việc
+- **Nhập bằng lời**: gõ một câu tự do vào thanh nhập ở cuối màn hình (ví dụ "Thứ sáu 3 giờ chiều họp khách, tối đi tập gym"); AI tách thành từng việc, tự phân loại vào nhóm (Công việc, Học tập, Cá nhân, Sức khoẻ, Tài chính, Nhà cửa, Khác), đặt hạn, thời lượng và mức ưu tiên
+- **Chia nhỏ công việc**: chạm vào một công việc → *AI chia nhỏ công việc* → nhận các bước cụ thể kèm thời lượng ước tính
+- **Đề xuất ưu tiên**: nút *Ưu tiên* trên danh sách → AI xem toàn bộ việc chưa xong, gán mức ưu tiên và ghi lý do cho từng việc
 
 **Xếp lịch tự động** (tab *Lịch*)
 - Xếp các việc chưa xong vào khoảng trống trong giờ làm việc của 14 ngày tới
@@ -51,8 +52,9 @@ TodoList/
 │   ├── CalendarService.swift    # Đọc/ghi Lịch qua EventKit
 │   └── KeychainStore.swift      # Lưu khoá API
 └── Views/
-    ├── TodoListView.swift       # Danh sách công việc
-    ├── TodoRowView.swift        # Một dòng công việc
+    ├── Theme.swift              # Bảng màu, kiểu chữ, các thành phần dùng chung
+    ├── TodoListView.swift       # Danh sách công việc, thanh nhập bằng lời
+    ├── TodoRowView.swift        # Thẻ của một công việc
     ├── TodoEditorView.swift     # Form thêm/sửa, các bước nhỏ
     ├── ScheduleView.swift       # Lịch đã xếp
     └── SettingsView.swift       # Khoá API, giờ làm việc, đồng bộ Lịch

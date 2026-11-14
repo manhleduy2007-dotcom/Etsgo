@@ -1,72 +1,55 @@
 import SwiftUI
 
+/// Thẻ của một công việc trong danh sách.
 struct TodoRowView: View {
     @Bindable var item: TodoItem
     var onEdit: () -> Void
 
-    private var doneSubtasks: Int {
-        item.subtasks.filter(\.isDone).count
+    private var totalMinutes: Int {
+        item.subtasks.isEmpty ? item.estimatedMinutes : item.subtasks.reduce(0) { $0 + $1.estimatedMinutes }
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Button {
+            CheckBox(isOn: item.isDone, color: item.category.color) {
                 withAnimation { item.isDone.toggle() }
-            } label: {
-                Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(item.isDone ? Color.green : Color.secondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(item.isDone ? "Đánh dấu chưa xong" : "Đánh dấu đã xong")
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(item.title)
+                    .font(.system(size: 16, weight: item.isDone ? .medium : .semibold))
                     .strikethrough(item.isDone)
-                    .foregroundStyle(item.isDone ? .secondary : .primary)
+                    .foregroundStyle(item.isDone ? Theme.muted : Theme.ink)
 
                 if !item.notes.isEmpty {
                     Text(item.notes)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.muted)
                         .lineLimit(2)
                 }
 
-                if let dueDate = item.dueDate {
-                    Label(
-                        "Hạn: " + dueDate.formatted(date: .abbreviated, time: .shortened),
-                        systemImage: "flag"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(item.isOverdue ? Color.red : Color.secondary)
-                }
-
-                if let start = item.scheduledStart, !item.isDone {
-                    Label(
-                        "Đã xếp: " + start.formatted(date: .abbreviated, time: .shortened),
-                        systemImage: "calendar"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.tint)
-                }
-
-                if !item.subtasks.isEmpty {
-                    Label("\(doneSubtasks)/\(item.subtasks.count) bước", systemImage: "list.bullet.indent")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                FlowLayout(spacing: 6) {
+                    if item.priority == .high && !item.isDone {
+                        TagView(text: "Ưu tiên cao", style: .highlight)
+                    }
+                    TagView(text: item.category.title, style: .category(item.category.color))
+                    TagView(text: durationText(totalMinutes))
+                    if let dueDate = item.dueDate {
+                        TagView(text: "Hạn " + shortDateText(dueDate), style: item.isOverdue ? .late : .plain)
+                    }
+                    if let start = item.scheduledStart, !item.isDone {
+                        TagView(text: "Đã xếp " + shortDateText(start))
+                    }
+                    if !item.subtasks.isEmpty {
+                        TagView(text: "\(item.subtasks.filter(\.isDone).count)/\(item.subtasks.count) bước")
+                    }
                 }
             }
-
-            Spacer(minLength: 0)
-
-            if item.priority == .high && !item.isDone {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
-                    .accessibilityLabel("Ưu tiên cao")
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onEdit)
         }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onEdit)
+        .padding(14)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
     }
 }

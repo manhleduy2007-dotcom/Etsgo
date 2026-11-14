@@ -34,66 +34,102 @@ struct ScheduleView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        autoSchedule()
-                    } label: {
-                        Label("Tự động xếp lịch", systemImage: "wand.and.stars")
-                    }
-                    .disabled(schedulable.isEmpty)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Eyebrow(text: "Tự động xếp vào giờ trống")
+                    Text("Lịch")
+                        .font(Theme.display)
+                        .tracking(-0.6)
+                        .foregroundStyle(Theme.ink)
+                }
+                .padding(.top, 16)
+                .padding(.bottom, 6)
 
-                    if !scheduled.isEmpty {
-                        Button("Xoá lịch đã xếp", systemImage: "calendar.badge.minus", role: .destructive) {
-                            clearSchedule()
-                        }
-                    }
-                } footer: {
-                    Text(
-                        "Xếp các việc chưa xong vào khung \(startHour):00–\(endHour):00 trong \(Scheduler.horizonDays) ngày tới, "
-                            + "ưu tiên cao và hạn gần được xếp trước"
-                            + (syncCalendar ? ", tránh các sự kiện đã có trong Lịch." : ".")
-                    )
+                Button {
+                    autoSchedule()
+                } label: {
+                    Label("Tự động xếp lịch", systemImage: "calendar.badge.checkmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Theme.onMark)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Theme.mark, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(schedulable.isEmpty)
+                .opacity(schedulable.isEmpty ? 0.45 : 1)
+
+                Text(
+                    "Xếp việc chưa xong vào khung \(startHour):00–\(endHour):00 trong \(Scheduler.horizonDays) ngày tới. "
+                        + "Ưu tiên cao và hạn gần được xếp trước"
+                        + (syncCalendar ? ", tránh các sự kiện đã có trong Lịch." : ".")
+                )
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.muted)
+
+                if let message {
+                    Text(message)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.ink, lineWidth: 1.5))
+                        .onTapGesture { self.message = nil }
                 }
 
                 ForEach(days, id: \.day) { group in
-                    Section(group.day.formatted(.dateTime.weekday(.wide).day().month())) {
-                        ForEach(group.items) { item in
-                            ScheduleRow(item: item)
-                        }
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(group.day.formatted(.dateTime.weekday(.wide)))
+                            .font(Theme.dayTitle)
+                            .foregroundStyle(Theme.ink)
+                        Text(group.day.formatted(.dateTime.day().month(.wide)))
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.muted)
+                    }
+                    .padding(.top, 12)
+
+                    ForEach(group.items) { item in
+                        ScheduleBlock(item: item)
                     }
                 }
 
                 if !unscheduled.isEmpty {
-                    Section("Chưa xếp lịch (\(unscheduled.count))") {
-                        ForEach(unscheduled) { item in
-                            ScheduleRow(item: item)
-                        }
+                    Eyebrow(text: "Chưa xếp lịch (\(unscheduled.count))")
+                        .padding(.top, 12)
+                    ForEach(unscheduled) { item in
+                        ScheduleBlock(item: item)
                     }
                 }
-            }
-            .overlay {
+
+                if !scheduled.isEmpty {
+                    Button("Xoá lịch đã xếp", role: .destructive) {
+                        clearSchedule()
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.red)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+                }
+
                 if schedulable.isEmpty {
-                    ContentUnavailableView(
-                        "Không có việc để xếp",
-                        systemImage: "calendar",
-                        description: Text("Thêm công việc ở tab Công việc rồi quay lại đây.")
-                    )
-                    .padding(.top, 120)
-                    .allowsHitTesting(false)
+                    VStack(spacing: 4) {
+                        Text("Không có việc để xếp")
+                            .font(Theme.dayTitle)
+                            .foregroundStyle(Theme.ink)
+                        Text("Thêm việc ở tab Công việc rồi quay lại đây.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.muted)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 36)
                 }
             }
-            .navigationTitle("Lịch")
-            .alert(
-                "Xếp lịch",
-                isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })
-            ) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(message ?? "")
-            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
+        .background(Theme.bg.ignoresSafeArea())
     }
 
     private func autoSchedule() {
@@ -135,55 +171,60 @@ struct ScheduleView: View {
             task.scheduledStart = nil
             CalendarService.shared.sync(task)
         }
+        message = nil
     }
 }
 
-private struct ScheduleRow: View {
+/// Một khối công việc trên lịch, tô nền theo màu nhóm.
+private struct ScheduleBlock: View {
     let item: TodoItem
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if let start = item.scheduledStart, let end = item.scheduledEnd {
-                VStack(alignment: .trailing) {
+        let category = item.effectiveCategory
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .trailing, spacing: 2) {
+                if let start = item.scheduledStart, let end = item.scheduledEnd {
                     Text(start.formatted(date: .omitted, time: .shortened))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.ink)
                     Text(end.formatted(date: .omitted, time: .shortened))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.muted)
                 }
-                .font(.subheadline.monospacedDigit())
-                .frame(width: 64, alignment: .trailing)
             }
+            .font(.system(size: 13).monospacedDigit())
+            .frame(width: 58, alignment: .trailing)
+            .padding(.top, 12)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(item.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
                 if let parent = item.parent {
                     Text(parent.title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.muted)
                 }
-                HStack(spacing: 8) {
-                    Text("\(item.estimatedMinutes) phút")
+                FlowLayout(spacing: 6) {
+                    if item.effectivePriorityRaw == Priority.high.rawValue {
+                        TagView(text: "Ưu tiên cao", style: .highlight)
+                    }
+                    TagView(text: category.title, style: .category(category.color))
+                    TagView(text: durationText(item.estimatedMinutes))
                     if let due = item.effectiveDueDate {
-                        Text("Hạn: " + due.formatted(date: .abbreviated, time: .shortened))
-                            .foregroundStyle(lateColor(due))
+                        // Đỏ khi giờ kết thúc đã xếp vượt quá hạn chót.
+                        TagView(
+                            text: "Hạn " + shortDateText(due),
+                            style: (item.scheduledEnd ?? .now) > due ? .late : .plain
+                        )
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
-
-            Spacer(minLength: 0)
-
-            if item.effectivePriorityRaw == Priority.high.rawValue {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
-                    .accessibilityLabel("Ưu tiên cao")
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(category.color.opacity(0.13), in: RoundedRectangle(cornerRadius: 16))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
         }
-    }
-
-    /// Đỏ khi giờ kết thúc đã xếp vượt quá hạn chót.
-    private func lateColor(_ due: Date) -> Color {
-        (item.scheduledEnd ?? .now) > due ? .red : .secondary
     }
 }
 

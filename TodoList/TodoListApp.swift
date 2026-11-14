@@ -19,7 +19,8 @@ struct RootView: View {
             ScheduleView()
                 .tabItem { Label("Lịch", systemImage: "calendar") }
             SettingsView()
-                .tabItem { Label("Cài đặt", systemImage: "gearshape") }
+                .tabItem { Label("Cài đặt", systemImage: "slider.horizontal.3") }
         }
+        .tint(Theme.ink)
     }
 }

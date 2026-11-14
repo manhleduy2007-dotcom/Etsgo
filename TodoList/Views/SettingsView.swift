@@ -58,6 +58,9 @@ struct SettingsView: View {
                     )
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .tint(Theme.ink)
             .navigationTitle("Cài đặt")
             .onChange(of: syncCalendar) { _, isOn in
                 guard isOn else { return }

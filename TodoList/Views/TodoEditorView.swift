@@ -14,6 +14,7 @@ struct TodoEditorView: View {
     @State private var hasDueDate: Bool
     @State private var dueDate: Date
     @State private var estimatedMinutes: Int
+    @State private var category: TaskCategory
 
     @State private var newSubtaskTitle = ""
     @State private var isBreakingDown = false
@@ -27,6 +28,7 @@ struct TodoEditorView: View {
         _hasDueDate = State(initialValue: item?.dueDate != nil)
         _dueDate = State(initialValue: item?.dueDate ?? Date.now.addingTimeInterval(3600))
         _estimatedMinutes = State(initialValue: item?.estimatedMinutes ?? 30)
+        _category = State(initialValue: item?.category ?? .other)
     }
 
     private var trimmedTitle: String {
@@ -43,6 +45,16 @@ struct TodoEditorView: View {
                 }
 
                 Section {
+                    Picker("Phân loại", selection: $category) {
+                        ForEach(TaskCategory.allCases) { category in
+                            Label {
+                                Text(category.title)
+                            } icon: {
+                                Image(systemName: "circle.fill").foregroundStyle(category.color)
+                            }
+                            .tag(category)
+                        }
+                    }
                     Picker("Ưu tiên", selection: $priority) {
                         ForEach(Priority.allCases) { Text($0.title).tag($0) }
                     }
@@ -53,7 +65,7 @@ struct TodoEditorView: View {
                     }
                 } footer: {
                     if let reason = item?.aiReason, !reason.isEmpty {
-                        Label(reason, systemImage: "sparkles")
+                        Text("Lý do AI đề xuất mức ưu tiên: \(reason)")
                     }
                 }
 
@@ -73,6 +85,9 @@ struct TodoEditorView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Theme.bg)
+            .tint(Theme.ink)
             .navigationTitle(item == nil ? "Việc mới" : "Sửa công việc")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -102,8 +117,8 @@ struct TodoEditorView: View {
                     Button {
                         toggle(sub, in: item)
                     } label: {
-                        Image(systemName: sub.isDone ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(sub.isDone ? Color.green : Color.secondary)
+                        Image(systemName: sub.isDone ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(sub.isDone ? item.category.color : Theme.muted)
                     }
                     .buttonStyle(.plain)
                     Text(sub.title)
@@ -185,16 +200,17 @@ struct TodoEditorView: View {
             item.priority = priority
             item.dueDate = due
             item.estimatedMinutes = estimatedMinutes
+            item.category = category
         } else {
-            context.insert(
-                TodoItem(
-                    title: trimmedTitle,
-                    notes: notes,
-                    dueDate: due,
-                    priority: priority,
-                    estimatedMinutes: estimatedMinutes
-                )
+            let newItem = TodoItem(
+                title: trimmedTitle,
+                notes: notes,
+                dueDate: due,
+                priority: priority,
+                estimatedMinutes: estimatedMinutes
             )
+            newItem.category = category
+            context.insert(newItem)
         }
         dismiss()
     }

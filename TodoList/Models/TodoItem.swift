@@ -1,5 +1,37 @@
 import Foundation
 import SwiftData
+import SwiftUI
+
+/// Nhóm công việc. AI chọn nhóm khi người dùng nhập bằng lời.
+enum TaskCategory: String, CaseIterable, Identifiable {
+    case work, study, personal, health, finance, home, other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .work: return "Công việc"
+        case .study: return "Học tập"
+        case .personal: return "Cá nhân"
+        case .health: return "Sức khoẻ"
+        case .finance: return "Tài chính"
+        case .home: return "Nhà cửa"
+        case .other: return "Khác"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .work: return Color(light: 0x2747E5, dark: 0x8FA4FF)
+        case .study: return Color(light: 0x7A45D6, dark: 0xBD9BFF)
+        case .personal: return Color(light: 0xD43F6C, dark: 0xFF8FB0)
+        case .health: return Color(light: 0x12875F, dark: 0x5ED6AA)
+        case .finance: return Color(light: 0xA66A12, dark: 0xF0B85A)
+        case .home: return Color(light: 0x0B7F97, dark: 0x62CFE6)
+        case .other: return Color(light: 0x5F6779, dark: 0xA7AEC2)
+        }
+    }
+}
 
 enum Priority: Int, CaseIterable, Identifiable {
     case low = 0
@@ -39,6 +71,7 @@ final class TodoItem {
     var createdAt: Date = Date.now
     var dueDate: Date?
     var priorityRaw: Int = 1
+    var categoryRaw: String = "other"
     /// Thời lượng ước tính, tính bằng phút.
     var estimatedMinutes: Int = 30
     /// Giờ bắt đầu do bộ xếp lịch gán.
@@ -71,6 +104,16 @@ final class TodoItem {
     var priority: Priority {
         get { Priority(rawValue: priorityRaw) ?? .medium }
         set { priorityRaw = newValue.rawValue }
+    }
+
+    var category: TaskCategory {
+        get { TaskCategory(rawValue: categoryRaw) ?? .other }
+        set { categoryRaw = newValue.rawValue }
+    }
+
+    /// Bước nhỏ mang nhóm của công việc cha.
+    var effectiveCategory: TaskCategory {
+        parent?.category ?? category
     }
 
     var isOverdue: Bool {
