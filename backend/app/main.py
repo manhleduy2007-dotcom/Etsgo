@@ -407,7 +407,40 @@ def callback(state: str, code: str):
 @app.get("/v1/calendar/status")
 def calendar_status(user: User):
     with Session() as db:
-        return {"google_connected": db.get(Entity, (user, "connection", "google")) is not None}
+        connection = db.get(Entity, (user, "connection", "google"))
+        return {"google_connected": bool(connection and not connection.deleted),
+                "exports": [{"planned_id": r.id, "provider": r.data["provider"],
+                             "title": r.data.get("title", ""), "status": r.data["status"],
+                             "error": r.data.get("error")} for r in entities(db, user, "binding")]}
+
+
+@app.get("/v1/calendar/google/calendars")
+def list_google_calendars(user: User):
+    items, version = calendar.google_calendars(user)
+    return {"calendars": items, "version": version}
+
+
+class CalendarSelection(BaseModel):
+    calendar_ids: list[str] = Field(max_length=50)
+    expected_version: int
+
+
+@app.put("/v1/calendar/google/calendars")
+def select_google_calendars(body: CalendarSelection, user: User):
+    available, _ = calendar.google_calendars(user)
+    requested = set(body.calendar_ids)
+    if not requested.issubset({item["id"] for item in available}):
+        raise Problem(422, "invalid_calendar_selection")
+    with Session.begin() as db:
+        lock_account(db, user)
+        row = db.get(Entity, (user, "connection", "google"))
+        if not row or row.version != body.expected_version:
+            raise Problem(409, "calendar_selection_stale")
+        row = save(db, user, "connection", "google", {**row.data, "read_calendars": sorted(requested)})
+        old = db.get(Entity, (user, "busy", "google"))
+        if old:
+            save(db, user, "busy", "google", {**old.data, "disabled": True})
+        return {"version": row.version, "selected": sorted(requested)}
 
 
 @app.post("/v1/calendar/exports")
@@ -453,6 +486,7 @@ def export(body: dict, user: User, key: Key):
                 continue
             action = {**binding.data, "action": "delete", "previous_etag": binding.data.get("etag"),
                       "revision": planned.version, "device_id": body.get("device_id")}
+            save(db, user, "binding", binding.id, {**action, "status": "pending"})
             if body["target"] == "google":
                 actions.append(new_job(db, user, "calendar", action, "remove:"+binding.id+":"+str(planned.version), False))
             else:
@@ -477,6 +511,10 @@ def calendar_result(identity: str, body: dict, user: User):
             raise Problem(404, "not_found")
         if row.data["revision"] != body.get("revision"):
             raise Problem(409, "calendar_action_stale")
+        if body.get("status") == "failed":
+            save(db, user, "calendar_action", identity, {**row.data, "status": "failed"})
+            save(db, user, "binding", identity, {**row.data, "provider": "eventkit", "status": "failed", "error": "eventkit_write_failed"})
+            return {"saved": True}
         save(db, user, "calendar_action", identity, {**row.data, "status": "synced"})
         save(db, user, "binding", identity, {**row.data, "provider": "eventkit", "status": "removed" if row.data.get("action") == "delete" else "synced",
              "external_id": body["external_id"]})

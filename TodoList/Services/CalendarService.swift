@@ -92,12 +92,19 @@ final class CalendarService {
         for action in response["actions"] as? [[String: Any]] ?? [] {
             guard let id = action["id"] as? String,
                   let start = SyncCoordinator.shared.date(action["start"]), let end = SyncCoordinator.shared.date(action["end"]) else { continue }
+            do {
             let marker = "etsgo:"+id
             let predicate = store.predicateForEvents(withStart: start.addingTimeInterval(-365*86400),
                 end: end.addingTimeInterval(365*86400), calendars: nil)
             let existing = store.events(matching: predicate).first { $0.notes?.contains(marker) == true }
             if action["action"] as? String == "delete" {
-                if let existing { try store.remove(existing, span: .thisEvent) }
+                if let existing {
+                    guard abs(existing.startDate.timeIntervalSince(start)) < 1,
+                          abs(existing.endDate.timeIntervalSince(end)) < 1 else {
+                        throw BackendFailure(code: "calendar_reconcile_required")
+                    }
+                    try store.remove(existing, span: .thisEvent)
+                }
                 _ = try await api.request("POST", "/v1/calendar/actions/"+id+"/result",
                     ["device_id": api.deviceID, "external_id": existing?.eventIdentifier ?? "", "revision": action["revision"] as? Int ?? 1])
                 continue
@@ -130,6 +137,12 @@ final class CalendarService {
             try store.save(event, span: .thisEvent)
             _ = try await api.request("POST", "/v1/calendar/actions/"+id+"/result",
                 ["device_id": api.deviceID, "external_id": event.eventIdentifier ?? "", "revision": action["revision"] as? Int ?? 1])
+            } catch {
+                // Report a durable failure, while keeping the original error visible.
+                _ = try? await api.request("POST", "/v1/calendar/actions/"+id+"/result",
+                    ["device_id": api.deviceID, "status": "failed", "revision": action["revision"] as? Int ?? 1])
+                throw error
+            }
         }
     }
 }

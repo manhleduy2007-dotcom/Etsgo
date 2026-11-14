@@ -151,6 +151,9 @@ struct BackendSettingsView: View {
     @State private var selected: Set<String> = []
     @State private var confirmLogout = false
     @State private var reauthenticate = false
+    @State private var googleCalendars: [[String: String]] = []
+    @State private var googleSelected: Set<String> = []
+    @State private var googleVersion = 0
     var body: some View {
         Form {
             Section(L("Đồng bộ", "Sync")) {
@@ -176,6 +179,38 @@ struct BackendSettingsView: View {
                             let result = try await api.request("POST", "/v1/calendar/google/connect")
                             if let text = result["url"] as? String, let url = URL(string: text) { openURL(url) }
                         } catch { note = error.localizedDescription }
+                    }
+                }
+                Button(L("Chọn lịch Google cần đọc", "Choose Google calendars")) {
+                    Task { @MainActor in
+                        do {
+                            let result = try await api.request("GET", "/v1/calendar/google/calendars")
+                            let rows = result["calendars"] as? [[String: Any]] ?? []
+                            googleVersion = result["version"] as? Int ?? 0
+                            googleSelected = Set(rows.filter { $0["selected"] as? Bool == true }.compactMap { $0["id"] as? String })
+                            googleCalendars = rows.compactMap { row in
+                                guard let id = row["id"] as? String else { return nil }
+                                return ["id": id, "title": row["title"] as? String ?? id]
+                            }
+                        } catch { note = error.localizedDescription }
+                    }
+                }
+                ForEach(googleCalendars, id: \.self) { calendar in
+                    let id = calendar["id"] ?? ""
+                    Toggle(calendar["title"] ?? id, isOn: Binding(get: { googleSelected.contains(id) }, set: {
+                        if $0 { googleSelected.insert(id) } else { googleSelected.remove(id) }
+                    }))
+                }
+                if googleVersion > 0 {
+                    Button(L("Lưu lịch Google đã chọn", "Save Google calendar selection")) {
+                        Task { @MainActor in
+                            do {
+                                let result = try await api.request("PUT", "/v1/calendar/google/calendars",
+                                    ["calendar_ids": Array(googleSelected), "expected_version": googleVersion])
+                                googleVersion = result["version"] as? Int ?? googleVersion
+                                note = L("Đã lưu nguồn lịch.", "Calendar sources saved.")
+                            } catch { note = error.localizedDescription }
+                        }
                     }
                 }
             }
@@ -216,8 +251,8 @@ struct BackendSettingsView: View {
     }
     private func logout() {
         Task { @MainActor in
-            await sync.sync(context)
             do {
+                try await sync.flush(context)
                 try sync.capture(context)
                 guard try context.fetch(FetchDescriptor<PendingOperation>()).isEmpty else {
                     note = L("Còn thay đổi chưa đồng bộ. Hãy đồng bộ hoặc giải quyết xung đột trước.", "Unsynced edits remain. Sync or resolve conflicts first."); return

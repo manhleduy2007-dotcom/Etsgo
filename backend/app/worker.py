@@ -13,6 +13,9 @@ def execute(job, db):
         from .calendar import export_google
         from types import SimpleNamespace
         with Session() as read_db:
+            binding = read_db.get(Entity, (job.owner, "binding", job.payload["planned_id"]))
+            if not binding or binding.data.get("revision") != job.payload["revision"]:
+                raise Problem(409, "calendar_action_stale")
             row = read_db.get(Entity, (job.owner, "connection", "google"))
             if not row:
                 raise Problem(409, "google_reconnect_required")

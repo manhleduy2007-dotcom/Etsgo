@@ -200,3 +200,79 @@ def test_other_user_cannot_read_job(client, user):
     with Session.begin() as db:
         result = new_job(db, str(uuid4()), "guidance", {}, "private")
     assert client.get("/v1/jobs/"+result["job_id"], headers=headers).status_code == 404
+
+
+def test_google_selection_validates_and_invalidates_snapshot(client, user, monkeypatch):
+    from app.db import save
+    owner, headers = user
+    with Session.begin() as db:
+        row = save(db, owner, "connection", "google", {"refresh": "secret-not-exposed", "app_calendar": "own", "read_calendars": ["primary"]})
+        version = row.version
+        save(db, owner, "busy", "google", {"intervals": [], "fetched_at": datetime.now(UTC).isoformat()})
+    monkeypatch.setattr("app.calendar.google_calendars", lambda owner: ([{"id": "a", "title": "Classes", "selected": False}], version))
+    url = "/v1/calendar/google/calendars"
+    assert client.put(url, headers=headers, json={"calendar_ids": ["unavailable"], "expected_version": version}).status_code == 422
+    response = client.put(url, headers=headers, json={"calendar_ids": ["a"], "expected_version": version})
+    assert response.status_code == 200
+    assert client.put(url, headers=headers, json={"calendar_ids": [], "expected_version": version}).status_code == 409
+    with Session() as db:
+        assert db.get(Entity, (owner, "busy", "google")).data["disabled"] is True
+    status = client.get("/v1/calendar/status", headers=headers).json()
+    assert "secret-not-exposed" not in str(status)
+
+
+def test_eventkit_failure_and_revision(client, user):
+    from app.db import save
+    owner, headers = user
+    identity = str(uuid4())
+    with Session.begin() as db:
+        save(db, owner, "calendar_action", identity, {"device_id": "phone", "revision": 2, "status": "pending"})
+    url = "/v1/calendar/actions/"+identity+"/result"
+    assert client.post(url, headers=headers, json={"device_id": "phone", "revision": 1, "status": "failed"}).status_code == 409
+    assert client.post(url, headers=headers, json={"device_id": "other", "revision": 2, "status": "failed"}).status_code == 404
+    assert client.post(url, headers=headers, json={"device_id": "phone", "revision": 2, "status": "failed"}).status_code == 200
+    status = client.get("/v1/calendar/status", headers=headers).json()
+    assert status["exports"][0]["status"] == "failed"
+
+
+def test_google_list_paginates_and_excludes_output(user, monkeypatch):
+    import httpx
+    from app import calendar
+    from app.db import save
+    owner, _ = user
+    with Session.begin() as db:
+        save(db, owner, "connection", "google", {"app_calendar": "own", "read_calendars": ["primary"]})
+    monkeypatch.setattr(calendar, "google_token", lambda connection: "test-token")
+    original = httpx.Client
+    def handler(request):
+        if request.url.params.get("pageToken"):
+            return httpx.Response(200, json={"items": [{"id": "b", "summary": "School"}, {"id": "own"}]})
+        return httpx.Response(200, json={"items": [{"id": "a", "primary": True}], "nextPageToken": "next"})
+    monkeypatch.setattr(calendar.httpx, "Client", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    rows, _ = calendar.google_calendars(owner)
+    assert [row["id"] for row in rows] == ["a", "b"]
+    assert rows[0]["selected"] is True
+
+
+def test_google_create_race_rejects_mismatched_event(monkeypatch):
+    import httpx
+    import pytest
+    from types import SimpleNamespace
+    from app import calendar
+    from app.sync import Problem
+    monkeypatch.setattr(calendar, "google_token", lambda connection: "test-token")
+    original = httpx.Client
+    count = 0
+    def handler(request):
+        nonlocal count
+        count += 1
+        if count == 1:
+            return httpx.Response(404)
+        if request.method == "POST":
+            return httpx.Response(409)
+        return httpx.Response(200, json={"extendedProperties": {"private": {"etsgo_id": "other"}}})
+    monkeypatch.setattr(calendar.httpx, "Client", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    with pytest.raises(Problem) as error:
+        calendar.export_google(SimpleNamespace(data={"app_calendar": "own"}), {"planned_id": str(uuid4()), "revision": 1,
+            "title": "Study", "start": "2026-11-16T09:00:00Z", "end": "2026-11-16T09:30:00Z"})
+    assert error.value.code == "calendar_reconcile_required"
