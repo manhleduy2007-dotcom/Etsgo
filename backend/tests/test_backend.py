@@ -276,3 +276,37 @@ def test_google_create_race_rejects_mismatched_event(monkeypatch):
         calendar.export_google(SimpleNamespace(data={"app_calendar": "own"}), {"planned_id": str(uuid4()), "revision": 1,
             "title": "Study", "start": "2026-11-16T09:00:00Z", "end": "2026-11-16T09:30:00Z"})
     assert error.value.code == "calendar_reconcile_required"
+
+
+def test_schedule_accept_export_and_stale_ack(client, user):
+    _, headers = user
+    push(client, headers, operation("profile", {"timezone": "UTC", "language": "en"}))
+    push(client, headers, operation("week", {"days": [
+        {"windows": [{"start": 0, "end": 1440}], "commitment": 60} for _ in range(7)]}))
+    push(client, headers, operation())
+    def propose_and_accept():
+        response = client.post("/v1/schedule/proposals", headers={**headers, "Idempotency-Key": str(uuid4())})
+        assert response.status_code == 200, response.text
+        value = response.json()
+        assert value["sessions"]
+        response = client.post("/v1/proposals/"+value["id"]+"/accept", headers={**headers, "Idempotency-Key": str(uuid4())},
+                               json={"expected_version": value["version"]})
+        assert response.status_code == 200, response.text
+        changes = client.get("/v1/sync/pull", headers=headers).json()["changes"]
+        current = {}
+        for change in changes:
+            if change["entity_type"] == "planned":
+                current[change["entity_id"]] = change
+        return [{"id": item["entity_id"], "version": item["version"]} for item in current.values() if not item["deleted"]]
+    first = propose_and_accept()
+    body = {"sessions": first, "target": "eventkit", "device_id": "phone"}
+    for _ in range(2):
+        assert client.post("/v1/calendar/exports", headers={**headers, "Idempotency-Key": str(uuid4())}, json=body).status_code == 200
+    second = propose_and_accept()
+    assert second[0]["id"] == first[0]["id"]
+    assert second[0]["version"] > first[0]["version"]
+    body["sessions"] = second
+    assert client.post("/v1/calendar/exports", headers={**headers, "Idempotency-Key": str(uuid4())}, json=body).status_code == 200
+    response = client.post("/v1/calendar/actions/"+first[0]["id"]+"/result", headers=headers,
+                           json={"device_id": "phone", "revision": first[0]["version"], "external_id": "old"})
+    assert response.status_code == 409

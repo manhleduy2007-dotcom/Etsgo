@@ -141,7 +141,7 @@ Terminal khác, activate cùng virtualenv, vào `backend/`, chạy `python -m ap
 ## Trạng thái bàn giao
 
 - Trước yêu cầu tạm bỏ qua kiểm thử: đã chạy 13 ca backend trên PostgreSQL thật ở Windows. CI của commit `facdc93` có backend và build iOS Simulator trên macOS thành công.
-- Sau khi tiếp tục công việc: 17 ca backend qua trên PostgreSQL thật, gồm chọn lịch Google, phân trang, lỗi EventKit và xung đột tạo sự kiện Google. Đây là kiểm thử với HTTP giả có kiểm soát; chưa thay thế nghiệm thu tài khoản Google thật. Xem CI/Git history cho trạng thái build iOS của từng commit.
+- Sau khi tiếp tục công việc: 18 ca backend qua trên PostgreSQL thật, gồm chọn lịch Google, phân trang, lỗi EventKit, xung đột tạo sự kiện và luồng duyệt → xuất → xếp lại → từ chối phản hồi cũ. Đây là kiểm thử với HTTP giả có kiểm soát; chưa thay thế nghiệm thu tài khoản Google thật. Xem CI/Git history cho trạng thái build iOS của từng commit.
 - Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu OTP, AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
 - Workflow `.github/workflows/ci.yml` có kiểm tra PostgreSQL và build Xcode để nhóm dùng khi tiếp tục. Chưa chạy không có nghĩa đã đạt.
 - `.env`, `.venv`, `.tools` không thuộc nguồn bàn giao. PostgreSQL portable đang dùng trên Windows nằm trong `.tools`; teammate Mac dùng Docker hoặc PostgreSQL của Mac.

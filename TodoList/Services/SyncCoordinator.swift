@@ -103,6 +103,11 @@ final class SyncCoordinator: ObservableObject {
         lastSucceeded = false
         defer { running = false }
         do {
+            if UserDefaults.standard.bool(forKey: "calendarDisablePending") {
+                _ = try await api.request("POST", "/v1/calendar/eventkit/snapshots",
+                    ["device_id": api.deviceID, "intervals": [], "enabled": false])
+                UserDefaults.standard.removeObject(forKey: "calendarDisablePending")
+            }
             if !UserDefaults.standard.bool(forKey: "syncInitialized") {
                 var initialCursor = 0
                 var boundary: Int?

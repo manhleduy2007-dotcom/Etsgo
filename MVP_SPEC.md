@@ -350,6 +350,8 @@ Các quyết định KT-01–KT-14 đã được người sáng lập duyệt to
 | `POST /v1/tasks/{id}/unblock` | Tạo job đề xuất cách tiếp tục; thay đổi task vẫn đi qua proposal/accept. |
 | `POST /v1/calendar/eventkit/snapshots` | iOS gửi ảnh chụp khoảng bận theo thiết bị/nguồn/range; thay snapshot trong range, không cộng dồn mãi. |
 | `POST /v1/calendar/google/connect` | Khởi tạo OAuth gắn với user, state và hạn dùng; callback do backend xử lý. |
+| `GET /v1/calendar/google/calendars` / `PUT /v1/calendar/google/calendars` | Liệt kê có phân trang phía provider và lưu các lịch được chọn với expected version; loại lịch Etsgo đầu ra. |
+| `GET /v1/calendar/status` | Trạng thái kết nối và từng lần xuất lịch; không trả OAuth token hoặc khóa. |
 | `POST /v1/calendar/exports` | Ghi nhận sự đồng ý xuất revision phiên cụ thể tới một đích; tạo outbox/job và trả trạng thái. |
 | `GET /v1/calendar/actions` | Thiết bị EventKit được chỉ định nhận lệnh ghi đã duyệt. |
 | `POST /v1/calendar/actions/{id}/result` | Thiết bị báo kết quả, binding và attempt ID; gửi lại không tạo thêm sự kiện. |

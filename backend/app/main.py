@@ -388,7 +388,7 @@ def eventkit_snapshot(body: dict, user: User):
             raise Problem(422, "invalid_interval")
     with Session.begin() as db:
         save(db, user, "busy", "eventkit", {"intervals": intervals, "fetched_at": now().isoformat(),
-             "source": "eventkit", "device_id": body["device_id"]})
+             "source": "eventkit", "device_id": body["device_id"], "disabled": body.get("enabled") is False})
     return {"saved": True}
 
 

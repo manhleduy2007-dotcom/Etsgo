@@ -60,6 +60,7 @@ struct APIKeyFields: View {
 }
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var context
     @AppStorage("language") private var language = "vi"
     @AppStorage("syncCalendar") private var syncCalendar = false
     @AppStorage("onboarded") private var onboarded = true
@@ -126,6 +127,10 @@ struct SettingsView: View {
             .tint(Theme.ink)
             .navigationTitle(L("Cài đặt", "Settings"))
             .onChange(of: syncCalendar) { _, isOn in
+                if !isOn {
+                    UserDefaults.standard.set(true, forKey: "calendarDisablePending")
+                    Task { await SyncCoordinator.shared.sync(context) }
+                }
                 guard isOn else { return }
                 Task { @MainActor in
                     let granted = await CalendarService.shared.requestAccess()
