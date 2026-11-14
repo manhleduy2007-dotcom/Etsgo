@@ -5,12 +5,12 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, SecretStr, ValidationError
 from sqlalchemy import select, text
 
 from . import calendar
 from .ai import prompt_context
-from .auth import authenticate, supabase
+from .auth import authenticate, decode_session, issue_session, login_api_key
 from .config import settings
 from .db import Change, Entity, Job, Session, lock_account, now, save, uid
 from .schemas import MessageInput, PlanTurn, Push
@@ -61,9 +61,12 @@ def health():
     return {"status": "ok"}
 
 
-class AuthInput(BaseModel):
-    email: str = Field(min_length=3, max_length=320)
-    code: str = Field(default="", max_length=10)
+class KeyLogin(BaseModel):
+    api_key: SecretStr = Field(min_length=16, max_length=512)
+
+
+class RefreshInput(BaseModel):
+    refresh_token: SecretStr = Field(max_length=2048)
 
 
 @app.post("/v1/auth/development")
@@ -86,20 +89,14 @@ def development_login(request: Request):
     return {"access_token": token, "refresh_token": "", "user": {"id": owner}}
 
 
-@app.post("/v1/auth/otp")
-def otp(body: AuthInput):
-    supabase("otp", {"email": body.email, "create_user": True})
-    return {"sent": True}
-
-
-@app.post("/v1/auth/verify")
-def verify(body: AuthInput):
-    return supabase("verify", {"email": body.email, "token": body.code, "type": "email"})
+@app.post("/v1/auth/api-key")
+def api_key_login(body: KeyLogin):
+    return login_api_key(body.api_key.get_secret_value().strip())
 
 
 @app.post("/v1/auth/refresh")
-def refresh(body: dict):
-    return supabase("token?grant_type=refresh_token", {"refresh_token": body.get("refresh_token", "")})
+def refresh(body: RefreshInput):
+    return issue_session(decode_session(body.refresh_token.get_secret_value(), "refresh"))
 
 
 @app.get("/v1/me")

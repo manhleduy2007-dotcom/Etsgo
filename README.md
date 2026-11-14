@@ -67,26 +67,29 @@ Với iPhone thật, cần backend HTTPS truy cập được từ điện thoạ
 | Lịch tuần, commitment, đề xuất/duyệt lịch | Có; app báo thiếu dữ liệu nếu chưa nối lịch ngoài. |
 | Pomodoro và kết quả | Có; dùng local/offline sau khi đăng nhập. |
 | Hội thoại AI, chia việc, handoff AI, guidance/unblock | Cần khóa/model AI. Thiếu cấu hình báo lỗi rõ, không tạo kết quả giả. |
-| Email OTP/tài khoản thật | Cần Supabase Auth + SMTP. |
+| Đăng nhập bằng OpenAI key | Nhập key hợp lệ; backend kiểm tra quyền dùng model và cấp phiên Etsgo. Không gửi email. |
 | Google Calendar | Cần OAuth client và Calendar API. |
 | EventKit | Cần quyền và dữ liệu Calendar trên simulator/thiết bị. Không cần Google OAuth nếu chỉ đọc EventKit. |
 | Thanh toán | Chưa thuộc mốc đầu. |
 
-Không có credentials không ngăn app mở và dùng to-do, đồng bộ local cùng bộ lập lịch; không có nghĩa luồng AI/Google/OTP thật đã được nghiệm thu.
+Không có credentials không ngăn app mở và dùng to-do, đồng bộ local cùng bộ lập lịch; không có nghĩa luồng AI/Google thật đã được nghiệm thu.
 
 ## Cấu hình dịch vụ thật
 
-### Supabase / Auth / PostgreSQL
+### Đăng nhập bằng OpenAI API key
 
-- Điền `SUPABASE_URL`, `SUPABASE_ANON_KEY` (publishable/anon key cho Auth).
-- Bật email OTP, dùng template chứa mã OTP và SMTP cho người dùng thật. Backend có gửi, xác minh và refresh session.
-- Dùng signing key bất đối xứng ES256/RS256; backend kiểm tra JWKS, issuer, audience và hạn token.
-- Compose dùng PostgreSQL local. Khi triển khai với Supabase PostgreSQL, đặt `DATABASE_URL` bằng connection string phù hợp có SSL, rồi chạy migration ở đó. Không cấp DB role này cho app.
-- Migration bật RLS và thu hồi quyền Data API của `anon`/`authenticated` trên bảng nghiệp vụ. FastAPI là đường ghi chính, có kiểm tra owner.
+- App chỉ yêu cầu OpenAI key, không có email/gửi mã OTP. Trong `/docs`, dùng `POST /v1/auth/api-key` với JSON `{"api_key":"key_mới"}`, rồi dùng `access_token` trả về cho Authorize. Không nhập key trực tiếp vào Authorize.
+- Backend kiểm tra key bằng thao tác đọc model OpenAI, không tạo nội dung ở bước đăng nhập. Quyền truy cập model không chứng minh tài khoản còn đủ quota/credit để sinh nội dung.
+- Cấu hình `AI_PROVIDER=openai`, `AI_MODEL` là model được cấp quyền. Tạo `APP_SESSION_SECRET` bằng `openssl rand -hex 32` và `ENCRYPTION_KEY` theo `.env.example`. Trong development, có thể dùng `DEV_AUTH_SECRET` làm secret phiên nếu chưa đặt `APP_SESSION_SECRET`.
+- Nếu Mac chưa có thư viện cryptography, sau `docker compose build api` có thể tạo encryption key bằng `docker compose run --rm --no-deps api python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`, rồi điền vào `.env` và recreate API/worker.
+- Key được mã hóa trong PostgreSQL, không trả về app hoặc đưa vào job/context/log. Worker lấy key đúng owner, không dùng key người khác. App chỉ giữ token phiên trong Keychain.
+- Cùng key trên cùng backend dùng chung dữ liệu demo. Đổi key tạo danh tính khác, không tự chuyển dữ liệu. Đây là cơ chế demo dùng key làm danh tính, không phải mô hình tài khoản freemium cuối cùng.
+- Giữ `ENCRYPTION_KEY` ổn định: nó bảo vệ khóa đã lưu và định danh dữ liệu demo. Thay secret ký phiên làm token cũ hết hiệu lực; người dùng nhập lại key.
+- Khi chạy backend từ xa, dùng HTTPS. Database có thể là PostgreSQL local hoặc Supabase PostgreSQL; không cần Supabase Auth/SMTP. FastAPI vẫn kiểm tra token và owner; không mở truy cập trực tiếp bảng cho app.
 
 ### AI
 
-OpenAI adapter đã được kiểm tra bằng SDK thật với HTTP giả cho kết quả hợp lệ, refusal/incomplete và lỗi xác thực/request. Bộ backend hiện có 21 ca qua local; chưa gọi OpenAI thật bằng khóa người dùng. Phải đặt khóa mới trong `.env` rồi khởi động lại API/worker để kích hoạt.
+OpenAI adapter đã được kiểm tra bằng SDK thật với HTTP giả cho kết quả hợp lệ, refusal/incomplete và lỗi xác thực/request. Bộ backend hiện có 24 ca qua local; chưa gọi OpenAI thật bằng khóa người dùng. Phải đặt khóa mới trong `.env` rồi khởi động lại API/worker để kích hoạt.
 
 - OpenAI: đặt `AI_PROVIDER=openai`, `OPENAI_API_KEY` và `AI_MODEL=gpt-4.1-mini` (hoặc model hỗ trợ Structured Outputs được cấp quyền trên tài khoản). Backend dùng Responses API với schema Pydantic, không cần sửa app iOS.
 - Anthropic vẫn được hỗ trợ: đặt `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` và model tương ứng trong `AI_MODEL`. Không có fallback tự gửi context sang provider khác.
@@ -108,7 +111,7 @@ OpenAI adapter đã được kiểm tra bằng SDK thật với HTTP giả cho k
 
 ```text
 backend/
-  app/config.py, auth.py           Cấu hình, Supabase JWT/OTP
+  app/config.py, auth.py           Cấu hình, đăng nhập key và token phiên
   app/db.py, schemas.py            Store và kiểm tra dữ liệu
   app/sync.py                     Version, receipt, tombstone, CRUD
   app/ai.py, worker.py             AI/context và job/quota bền vững
@@ -149,7 +152,7 @@ Terminal khác, activate cùng virtualenv, vào `backend/`, chạy `python -m ap
 
 - Trước yêu cầu tạm bỏ qua kiểm thử: đã chạy 13 ca backend trên PostgreSQL thật ở Windows. CI của commit `facdc93` có backend và build iOS Simulator trên macOS thành công.
 - Sau khi tiếp tục công việc: 18 ca backend qua trên PostgreSQL thật, gồm chọn lịch Google, phân trang, lỗi EventKit, xung đột tạo sự kiện và luồng duyệt → xuất → xếp lại → từ chối phản hồi cũ. Đây là kiểm thử với HTTP giả có kiểm soát; chưa thay thế nghiệm thu tài khoản Google thật. Xem CI/Git history cho trạng thái build iOS của từng commit.
-- Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu OTP, AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
+- Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
 - Workflow `.github/workflows/ci.yml` có kiểm tra PostgreSQL và build Xcode để nhóm dùng khi tiếp tục. Chưa chạy không có nghĩa đã đạt.
 - `.env`, `.venv`, `.tools` không thuộc nguồn bàn giao. PostgreSQL portable đang dùng trên Windows nằm trong `.tools`; teammate Mac dùng Docker hoặc PostgreSQL của Mac.
 - Giá trị chưa chốt: model AI cuối, hạn mức thương mại, chính sách dữ liệu người chưa thành niên và hosting thật. App đã có chọn lịch Google và làm mới trạng thái xuất lịch; kiểm thử tương tác thiết bị vẫn cần thực hiện trên Mac.

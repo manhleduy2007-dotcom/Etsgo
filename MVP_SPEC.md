@@ -253,7 +253,7 @@ Các quyết định KT-01–KT-14 đã được người sáng lập duyệt to
 | ID | Quyết định | Ràng buộc cần giữ |
 |---|---|---|
 | KT-01 | Một backend Python/FastAPI, phân module trong cùng ứng dụng | Tách nghiệp vụ khỏi route, SDK mô hình và giao diện; không tách microservice trong mốc đầu. |
-| KT-02 | Supabase Auth + PostgreSQL được quản lý; email OTP | FastAPI xác thực token và quyền sở hữu; kết nối Google Calendar là cấp quyền riêng. Cấu hình SMTP cho người dùng thử thật. |
+| KT-02 | Cập nhật theo duyệt mới: demo nhập OpenAI key, bỏ email/OTP; PostgreSQL giữ nguyên | Backend xác minh key, lưu mã hóa, cấp access/refresh token và kiểm tra owner. Cùng key dùng chung dữ liệu demo. Auth thương mại freemium sẽ quyết định riêng. |
 | KT-03 | Tách Task, PlannedSession, FocusSession | Một việc có nhiều phiên; hết giờ không tự hoàn thành việc. |
 | KT-04 | Server là nguồn chính; SwiftData là bản local, có outbox | Offline tạo/sửa/hoàn thành việc, xem dữ liệu đã tải và chạy Pomodoro; AI cần mạng. Có version, idempotency, tombstone và giải quyết xung đột. |
 | KT-05 | Context có cấu trúc + bản tóm tắt cho AI | Thông tin người dùng nói rõ được ghi nhận trong đúng phạm vi; suy đoán tách riêng; hỏi khi mâu thuẫn ảnh hưởng kế hoạch. |
@@ -272,7 +272,7 @@ Các quyết định KT-01–KT-14 đã được người sáng lập duyệt to
 - iOS sở hữu giao diện, nhận dạng voice, local store/outbox, bộ đếm, local notifications và EventKit. Giữ UI hiện có trong đợt chuyển đổi.
 - FastAPI sở hữu xác thực, dữ liệu chính, quyền truy cập, đồng bộ, context, hội thoại, đề xuất, thuật toán lịch, Google Calendar và quota.
 - Worker thực hiện việc chậm hoặc cần retry; không giữ transaction database mở trong lúc chờ gọi AI/Google.
-- Supabase chỉ cung cấp Auth và PostgreSQL trong baseline. App không dùng Data API để sửa trực tiếp bảng nghiệp vụ; không có đường ghi thứ hai bỏ qua FastAPI.
+- Bản demo không dùng Supabase Auth/SMTP. Có thể dùng PostgreSQL managed của Supabase; app không dùng Data API để sửa trực tiếp bảng nghiệp vụ và không bỏ qua FastAPI. Khóa OpenAI chỉ ở backend dạng mã hóa; job dùng key đúng owner.
 - Phân module theo trách nhiệm trên, không tạo một framework tổng quát cho mọi loại agent/tool. Chưa cần vector database, Redis hoặc framework điều phối AI bổ sung để hoàn thành baseline này.
 
 ## 13. Baseline dữ liệu và các bất biến
@@ -281,7 +281,7 @@ Các quyết định KT-01–KT-14 đã được người sáng lập duyệt to
 
 | Nhóm | Nội dung cần có |
 |---|---|
-| UserProfile | ID từ Auth, language `vi/en`, timezone IANA, phiên bản hồ sơ. |
+| UserProfile | ID danh tính demo theo key (hoặc development), language `vi/en`, timezone IANA, phiên bản hồ sơ. |
 | Task | UUID, owner, parent ID, thứ tự/phụ thuộc, tên/ghi chú, trạng thái, deadline, ước lượng, ưu tiên, nhóm, nhắc việc, recurrence. |
 | PlannedSession | UUID, task ID, thời gian UTC, thời lượng focus/rest, trạng thái và revision kế hoạch đã duyệt. |
 | FocusSession | UUID sinh trên thiết bị, task ID nếu còn tồn tại, planned session ID nếu có, tên chụp tại thời điểm học, các mốc chạy/dừng, số giây và outcome. |
@@ -333,6 +333,7 @@ Các quyết định KT-01–KT-14 đã được người sáng lập duyệt to
 
 | API | Trách nhiệm và kết quả |
 |---|---|
+| `POST /v1/auth/api-key` / `POST /v1/auth/refresh` | Kiểm tra key, cấp phiên và làm mới token; request chứa SecretStr, không echo khóa. |
 | `GET /v1/me` | Hồ sơ, timezone, trạng thái tài khoản và thông tin khả dụng tối thiểu. |
 | `POST /v1/sync/push` | Gửi operation CRUD cho dữ liệu offline được phép; trả receipt/conflict theo operation. |
 | `GET /v1/sync/pull?cursor=...` | Các thay đổi theo owner, có phân trang và cursor tiếp theo; cursor không hợp lệ trả yêu cầu bootstrap lại. |
@@ -475,10 +476,10 @@ Nguồn chính thức đã tham khảo khi chọn thiết kế (cần kiểm tra
 
 - [FastAPI: features và OpenAPI](https://fastapi.tiangolo.com/features/).
 - [PostgreSQL: JSON/JSONB](https://www.postgresql.org/docs/current/datatype-json.html).
-- [Supabase: email OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless), [SMTP](https://supabase.com/docs/guides/auth/auth-smtp), [JWT signing keys](https://supabase.com/docs/guides/auth/signing-keys).
+- [OpenAI API quickstart](https://developers.openai.com/api/docs/quickstart): key dùng phía backend. Quyết định email OTP cũ đã được người sáng lập thay bằng nhập key cho bản demo.
 - [SQLAlchemy](https://docs.sqlalchemy.org/), [Alembic migrations](https://alembic.sqlalchemy.org/en/latest/).
 - [Anthropic Python SDK](https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/python): tham khảo adapter, không cam kết provider/model cuối.
 - [Google Calendar scopes](https://developers.google.com/workspace/calendar/api/auth), [Freebusy](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query), [xử lý lỗi](https://developers.google.com/workspace/calendar/api/guides/errors).
 - [Apple EventKit eventIdentifier](https://developer.apple.com/documentation/eventkit/ekevent/eventidentifier): ID có thể đổi khi chuyển calendar; không dùng như ID nghiệp vụ duy nhất.
 
-Trước khi tạo code mới: người điều phối gán owner thực tế, chốt kế hoạch file, schema/OpenAPI baseline và thứ tự migration. Trước tích hợp thật: chọn model/provider, giá trị hạn mức, môi trường/SMTP, cấu hình OAuth/scopes/redirect và tiêu chí độ mới busy. Trước đưa người dùng thật vào: chốt chính sách dữ liệu, backup/restore, giới hạn ngân sách và điều kiện thử nghiệm cho người chưa thành niên. Không cần chờ chốt giá thanh toán để làm mốc kỹ thuật đầu.
+Trước khi tạo code mới: người điều phối gán owner thực tế, chốt kế hoạch file, schema/OpenAPI baseline và thứ tự migration. Trước tích hợp thật: chọn model/provider, giá trị hạn mức, secret phiên/mã hóa, cấu hình OAuth/scopes/redirect và tiêu chí độ mới busy. Trước đưa người dùng thật vào: chốt chính sách dữ liệu, backup/restore, giới hạn ngân sách và điều kiện thử nghiệm cho người chưa thành niên. Không cần chờ chốt giá thanh toán để làm mốc kỹ thuật đầu.

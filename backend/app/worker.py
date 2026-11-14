@@ -21,7 +21,16 @@ def execute(job, db):
                 raise Problem(409, "google_reconnect_required")
             connection = SimpleNamespace(data=dict(row.data))
         return export_google(connection, job.payload)
-    return ai.run(job.kind, job.payload)
+    from .calendar import cipher
+    with Session() as read_db:
+        credential = read_db.get(Entity, (job.owner, "credential", "openai"))
+        encrypted = credential.data["encrypted_key"] if credential and not credential.deleted else None
+    key = cipher().decrypt(encrypted.encode()).decode() if encrypted else None
+    state = ai.provider_key.set(key)
+    try:
+        return ai.run(job.kind, job.payload)
+    finally:
+        ai.provider_key.reset(state)
 
 
 def process_one():

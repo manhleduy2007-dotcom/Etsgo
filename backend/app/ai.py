@@ -1,4 +1,5 @@
 import json
+from contextvars import ContextVar
 
 import anthropic
 import openai
@@ -8,6 +9,8 @@ from .config import settings
 from .db import now
 from .schemas import PlanTurn, Step
 from .sync import entities, singleton
+
+provider_key = ContextVar("provider_key", default=None)
 
 
 class ContextDraft(BaseModel):
@@ -84,7 +87,7 @@ def prompt_context(db, owner, goal=None):
 
 def complete(model, instruction, payload):
     cfg = settings()
-    if cfg.ai_provider == "openai":
+    if cfg.ai_provider == "openai" or provider_key.get() is not None:
         return complete_openai(model, instruction, payload)
     if not cfg.anthropic_api_key or not cfg.ai_model:
         raise RuntimeError("ai_not_configured")
@@ -106,12 +109,13 @@ def complete(model, instruction, payload):
 
 def complete_openai(model, instruction, payload):
     cfg = settings()
-    if not cfg.openai_api_key or not cfg.ai_model:
+    key = provider_key.get() or cfg.openai_api_key
+    if not key or not cfg.ai_model:
         raise RuntimeError("ai_not_configured")
     try:
         # Provider retries are disabled: the durable worker owns retry and quota.
         # Responses are not stored by OpenAI for conversation state; Etsgo owns it.
-        with openai.OpenAI(api_key=cfg.openai_api_key, max_retries=0, timeout=90) as client:
+        with openai.OpenAI(api_key=key, max_retries=0, timeout=90) as client:
             response = client.responses.parse(
                 model=cfg.ai_model, max_output_tokens=6000, store=False,
                 input=[{"role": "system", "content": instruction +

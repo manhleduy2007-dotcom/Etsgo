@@ -368,3 +368,80 @@ def test_openai_missing_credentials_does_not_call_provider(monkeypatch):
     monkeypatch.setattr(ai.openai, "OpenAI", unexpected)
     with pytest.raises(RuntimeError, match="ai_not_configured"):
         ai.complete(ai.Guidance, "Help", {})
+
+
+def test_key_login_encryption_and_session(client, monkeypatch):
+    from cryptography.fernet import Fernet
+    from app.config import settings
+    cfg = settings()
+    monkeypatch.setattr(cfg, "encryption_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(cfg, "ai_model", "test-model")
+    from types import SimpleNamespace
+    calls = []
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.models = self
+            calls.append(kwargs["api_key"])
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def retrieve(self, model): return SimpleNamespace(id=model)
+    monkeypatch.setattr("app.auth.openai.OpenAI", FakeOpenAI)
+    key = "not-a-real-openai-key-for-tests"
+    response = client.post("/v1/auth/api-key", json={"api_key": key})
+    assert response.status_code == 200
+    session = response.json()
+    assert key not in response.text
+    headers = {"Authorization": "Bearer "+session["access_token"]}
+    assert client.get("/v1/me", headers=headers).json()["id"] == session["user"]["id"]
+    assert client.get("/v1/me", headers={"Authorization": "Bearer "+session["refresh_token"]}).status_code == 401
+    assert client.post("/v1/auth/refresh", json={"refresh_token": session["refresh_token"]}).status_code == 200
+    assert client.post("/v1/auth/refresh", json={"refresh_token": session["access_token"]}).status_code == 401
+    again = client.post("/v1/auth/api-key", json={"api_key": key}).json()
+    assert again["user"] == session["user"]
+    different = client.post("/v1/auth/api-key", json={"api_key": key+"different"}).json()
+    assert different["user"] != session["user"]
+    with Session() as db:
+        credential = db.get(Entity, (session["user"]["id"], "credential", "openai"))
+        assert key not in str(credential.data)
+        assert Fernet(cfg.encryption_key.encode()).decrypt(credential.data["encrypted_key"].encode()).decode() == key
+    assert "/v1/auth/otp" not in client.get("/openapi.json").json()["paths"]
+    assert "/v1/auth/verify" not in client.get("/openapi.json").json()["paths"]
+
+
+def test_key_login_rejection_does_not_echo_secret(client, monkeypatch):
+    import openai
+    import httpx
+    from cryptography.fernet import Fernet
+    from app.config import settings
+    cfg = settings()
+    monkeypatch.setattr(cfg, "encryption_key", Fernet.generate_key().decode())
+    monkeypatch.setattr(cfg, "ai_model", "test-model")
+    original = openai.OpenAI
+    transport = httpx.MockTransport(lambda request: httpx.Response(401, json={"error": {"message": "do not echo credentials"}}))
+    monkeypatch.setattr("app.auth.openai.OpenAI", lambda **kwargs: original(**kwargs, http_client=httpx.Client(transport=transport)))
+    response = client.post("/v1/auth/api-key", json={"api_key": "not-a-real-key-for-test"})
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_openai_key"
+    assert "do not echo" not in response.text
+
+
+def test_worker_uses_owner_key_and_resets_context(monkeypatch):
+    from cryptography.fernet import Fernet
+    from types import SimpleNamespace
+    from app import ai, worker
+    from app.config import settings
+    from app.db import save
+    encryption = Fernet.generate_key()
+    monkeypatch.setattr(settings(), "encryption_key", encryption.decode())
+    owner = str(uuid4())
+    with Session.begin() as db:
+        save(db, owner, "credential", "openai", {"encrypted_key": Fernet(encryption).encrypt(b"owner-test-key").decode()})
+    seen = []
+    def run(kind, payload):
+        seen.append(ai.provider_key.get())
+        return {"ok": True}
+    monkeypatch.setattr(ai, "run", run)
+    assert worker.execute(SimpleNamespace(kind="guidance", owner=owner, payload={}), None) == {"ok": True}
+    worker.execute(SimpleNamespace(kind="guidance", owner=str(uuid4()), payload={}), None)
+    assert seen == ["owner-test-key", None]
+    assert ai.provider_key.get() is None

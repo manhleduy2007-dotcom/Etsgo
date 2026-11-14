@@ -30,12 +30,8 @@ final class BackendClient: ObservableObject {
         }
     }
 
-    func sendCode(email: String) async throws {
-        _ = try await request("POST", "/v1/auth/otp", ["email": email], authenticated: false)
-    }
-
-    func verify(email: String, code: String) async throws {
-        let value = try await request("POST", "/v1/auth/verify", ["email": email, "code": code], authenticated: false)
+    func signIn(apiKey: String) async throws {
+        let value = try await request("POST", "/v1/auth/api-key", ["api_key": apiKey], authenticated: false)
         guard let user = value["user"] as? [String: Any], let id = user["id"] as? String else {
             throw BackendFailure(code: "invalid_auth_response")
         }

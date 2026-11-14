@@ -6,9 +6,7 @@ struct AccountView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @AppStorage("backendURL") private var backendURL = "http://localhost:8000"
-    @State private var email = ""
-    @State private var code = ""
-    @State private var sent = false
+    @State private var apiKey = ""
     @State private var busy = false
     @State private var errorText: String?
 
@@ -20,27 +18,25 @@ struct AccountView: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
                 Section {
-                    TextField("Email", text: $email).keyboardType(.emailAddress)
+                    SecureField("OpenAI API key", text: $apiKey)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    if sent { TextField(L("Mã OTP", "OTP code"), text: $code).keyboardType(.numberPad) }
-                    Button(sent ? L("Xác nhận và nhập dữ liệu local", "Verify and import local data") : L("Gửi mã", "Send code")) {
+                    Button(L("Kết nối bằng key", "Connect with API key")) {
                         busy = true; errorText = nil
                         Task { @MainActor in
                             defer { busy = false }
                             do {
-                                if sent {
-                                    try await api.verify(email: email, code: code)
-                                    await SyncCoordinator.shared.sync(context)
-                                    dismiss()
-                                } else { try await api.sendCode(email: email); sent = true }
+                                try await api.signIn(apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                                apiKey = ""
+                                await SyncCoordinator.shared.sync(context)
+                                dismiss()
                             } catch { errorText = error.localizedDescription }
                         }
-                    }.disabled(busy || email.isEmpty || (sent && code.isEmpty))
+                    }.disabled(busy || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 } header: {
                     Text(L("Đăng nhập", "Sign in"))
                 } footer: {
-                    Text(L("Khi xác nhận, công việc và context trên máy sẽ được đồng bộ vào tài khoản này. AI cần kết nối mạng.",
-                           "Verifying will synchronize local tasks and context into this account. AI needs a network connection."))
+                    Text(L("Backend kiểm tra key với OpenAI và lưu mã hóa. Dùng cùng key sẽ dùng chung dữ liệu demo; đổi key tạo danh tính khác. Không cần email hay mã OTP.",
+                           "The backend validates your key with OpenAI and stores it encrypted. The same key shares demo data; a different key uses a different identity. No email or OTP."))
                 }
                 if let errorText { Text(errorText).foregroundStyle(.red) }
                 if busy { ProgressView() }
@@ -56,6 +52,7 @@ struct AccountView: View {
                 #endif
             }
             .navigationTitle("Etsgo")
+            .onDisappear { apiKey = "" }
         }
     }
 }
