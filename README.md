@@ -1,97 +1,169 @@
 # Etsgo
 
-Ứng dụng iOS (SwiftUI + SwiftData) giúp học sinh, sinh viên biến mong muốn học thành các bước làm được ngay, xếp vào lịch theo context cá nhân và thực hiện bằng Pomodoro. Đặc tả sản phẩm: [MVP_SPEC.md](MVP_SPEC.md). Mô hình kinh doanh: [BUSINESS_MODEL_CANVAS.md](BUSINESS_MODEL_CANVAS.md).
+Ứng dụng iOS giúp học sinh/sinh viên biến mong muốn học thành các bước, xếp lịch theo context cá nhân và thực hiện bằng Pomodoro.
 
-## Bắt đầu cho thành viên và agent
+- [Đặc tả và thiết kế kỹ thuật](MVP_SPEC.md): quyết định tại mục 12, dữ liệu/API tại mục 13–14, phân công và nghiệm thu tại mục 15–16.
+- [Business Model Canvas](BUSINESS_MODEL_CANVAS.md).
 
-1. Đọc [bàn giao và trạng thái code](MVP_SPEC.md#11-bàn-giao-context-cho-các-agent-phát-triển), sau đó [quyết định kỹ thuật đã duyệt](MVP_SPEC.md#12-quyết-định-kỹ-thuật-đã-duyệt).
-2. Đọc [baseline dữ liệu](MVP_SPEC.md#13-baseline-dữ-liệu-và-các-bất-biến) và [hợp đồng tích hợp](MVP_SPEC.md#14-hợp-đồng-tích-hợp-giữa-các-nhóm) trước khi thay model/API.
-3. Nhận owner/phạm vi tại [phân công](MVP_SPEC.md#15-phân-công-để-nhiều-người-làm-song-song), thống nhất danh sách file trước khi thêm file. Theo [phase tích hợp và nghiệm thu](MVP_SPEC.md#16-thứ-tự-tích-hợp-và-điều-kiện-hoàn-thành).
+## Chạy trên MacBook và iOS Simulator
 
-Thiết kế đích đã duyệt: **Python/FastAPI + Supabase Auth/PostgreSQL; iOS lưu local và đồng bộ offline; context có cấu trúc; AI tạo proposal; scheduler server; EventKit + Google Calendar; quota server, chưa thanh toán**. Các phần này chưa được triển khai chỉ vì đã có tài liệu.
+Cần **Xcode 16+**, iOS Simulator 17+, **Docker Desktop đang chạy** và Git. Teammate chạy backend trên chính MacBook; `localhost` trong Simulator trỏ tới Mac, không phải máy Windows của thành viên khác.
 
-Baseline code được đọc là `aa9f237` trên nhánh `claude/dreamy-sagan-l66oau`. Quyết định mới thay thế lựa chọn tạm tương ứng trong code; kiểm tra branch/commit thực tế trước khi làm việc. Bản cập nhật tài liệu này không sửa mã ứng dụng, không bổ sung file hoặc dependency.
+### 1. Lấy đúng nhánh
 
-## Trạng thái
+```sh
+git clone https://github.com/manhleduy2007-dotcom/Etsgo.git
+cd Etsgo
+git switch feature/backend-integration
+```
 
-Mã nguồn đã viết theo đặc tả nhưng **chưa từng được biên dịch hay chạy** (môi trường viết mã không có Xcode), kể cả `TodoList.xcodeproj/project.pbxproj`. Chưa có unit test. Mọi mục "đã có" bên dưới nghĩa là đã có mã, chưa phải đã kiểm chứng.
+Nếu đã clone, dùng `git fetch origin`, chuyển sang nhánh trên và `git pull --ff-only` sau khi xử lý thay đổi local của mình.
 
-## Yêu cầu trong đặc tả và mã tương ứng
+### 2. Cấu hình local, chưa cần dịch vụ ngoài
 
-| ID | Nội dung | Mã |
-|---|---|---|
-| TD-01 | Thêm, sửa, xoá, hoàn thành, mở lại; tạo việc không cần AI | `TodoListView`, `TodoEditorView` |
-| TD-02 | Danh sách (nhóm), việc con, ngày giờ, ưu tiên, nhắc việc, việc lặp, tìm kiếm, lọc | `TodoItem`, `TodoEditorView`, `NotificationService` |
-| AI-01 | Text và voice vào cùng luồng; sửa được nội dung nhận từ giọng nói | `SpeechRecognizer`, `MicButton` trong `Theme.swift` |
-| AI-02, AI-03 | Hỏi từng câu ngắn có đáp án nhanh; nút "Cứ đề xuất trước" | `PlannerView`, `AIService.planTurn` |
-| AI-04 | Phân rã, ước lượng; sửa/bỏ bước trực tiếp hoặc qua hội thoại | `PlannerView`, `AIService.breakdown` |
-| CT-01 | Prompt handoff sao chép được; nhận nội dung và tổng hợp context | `HandoffImportView`, `AIService.summarizeHandoff` |
-| CT-02 | Xem, sửa, xoá, xác nhận từng mẩu context | `ContextView`, `ContextItem` |
-| CT-03 | Dùng context trong đề xuất; mục "Dựa trên" giải thích | `buildPromptContext`, `PlannerView` |
-| CA-01 | Nhận lịch ngoài qua một phương thức | `CalendarService` (Lịch của iPhone, EventKit) |
-| SC-01 | Lịch học tuần và xác nhận cam kết ngày | `StudySchedule`, `WeeklyScheduleEditor`, `ScheduleView` |
-| SC-02 | Không chồng phiên, không vượt cam kết, giữ thứ tự bước | `Scheduler` |
-| SC-03 | Nêu phần chưa xếp được và lý do; không tự tăng giờ | `ScheduleView` |
-| SC-04 | Đề xuất → sửa → duyệt; ghi Lịch ngoài cần xác nhận riêng | `ScheduleView` |
-| PO-01, PO-02 | Nhiều phiên cho một việc; độ dài tập trung/nghỉ sửa được; bắt đầu, tạm dừng, tiếp tục, kết thúc sớm | `PomodoroView` |
-| PO-03 | Hết giờ không tự đánh dấu xong; cập nhật nhanh Xong / Cần thêm thời gian / Đang vướng | `PomodoroView` |
-| EX-01, EX-02 | Hướng dẫn ngắn và một tài liệu khi bắt đầu việc, đổi được; không đưa URL, chỉ mở tìm kiếm và ghi rõ chưa kiểm chứng | `PomodoroView`, `AIService.guidance` |
-| AD-01 | Sau khi lỡ, chưa xong hoặc vướng: đề xuất phương án, hiện thay đổi trước khi duyệt | `ScheduleView`, `AIService.unblock` |
-| LG-01 | Việt / Anh cho giao diện và hội thoại | `AppLanguage`, hàm `L(_:_:)` |
+Tại thư mục chứa `compose.yaml`:
 
-## Lựa chọn trong code hiện tại và hướng chuyển đổi
+```sh
+cp .env.example .env
+python3 - <<'PY'
+from pathlib import Path
+import secrets
+p = Path('.env')
+s = p.read_text()
+s = s.replace('ENVIRONMENT=production', 'ENVIRONMENT=development')
+s = s.replace('DEV_AUTH_SECRET=\n', 'DEV_AUTH_SECRET=' + secrets.token_urlsafe(48) + '\n')
+p.write_text(s)
+PY
+docker compose up --build
+```
 
-Đây là trạng thái code tại baseline, không phải mô tả backend đã triển khai. Đối chiếu [mục 10](MVP_SPEC.md#10-trạng-thái-các-điểm-từng-để-mở) và [mục 12](MVP_SPEC.md#12-quyết-định-kỹ-thuật-đã-duyệt) để biết thiết kế mới đã duyệt:
+Chỉ sao chép cho lần setup đầu; không ghi đè `.env` đã chứa cấu hình riêng. Không commit `.env` hoặc gửi khóa vào chat.
 
-- **Nền tảng:** iOS native, iOS 17+.
-- **AI:** code gọi Claude (`claude-opus-5-5`) thẳng từ điện thoại bằng khoá người dùng tự nhập trong Keychain. Thiết kế mới chuyển khóa, gọi AI và hạn mức về backend; model/provider cuối chưa chốt.
-- **Voice:** nhận dạng giọng nói của iOS (Speech framework).
-- **Nguồn lịch:** code có EventKit. Thiết kế mới yêu cầu thêm Google Calendar ngay mốc đầu; Notion chưa thuộc đợt tích hợp này.
-- **Cam kết:** tính cả giờ nghỉ, tức tổng thời gian chiếm trên lịch; đã được duyệt giữ nguyên.
-- **Tài liệu học:** AI mô tả loại tài liệu và câu tìm kiếm; ứng dụng mở trang tìm kiếm web.
-- **Việc lặp:** hằng ngày hoặc hằng tuần, tạo bản kế tiếp khi hoàn thành.
+Compose khởi động PostgreSQL → migration → API và worker. API publish tại **127.0.0.1:8000**. Lần build đầu cần mạng để tải image/dependency. Mở `http://localhost:8000/health` để xem server sẵn sàng; OpenAPI ở `http://localhost:8000/docs`.
 
-## Chưa làm
+### 3. Mở app
 
-- Backend, tài khoản, đồng bộ offline với server và hạn mức miễn phí theo thiết kế đã duyệt. Thanh toán/gói trả phí nằm sau mốc thử nghiệm đầu.
-- Chính sách lưu/xoá dữ liệu, đồng ý sử dụng dữ liệu, xử lý người dùng chưa thành niên.
-- Đo lường (mục 9): mới chỉ lưu các phiên tập trung trong `FocusSession`, chưa có báo cáo.
-- Bộ đếm Pomodoro khi app ở nền chỉ dựa vào mốc kết thúc và một thông báo; chưa có Live Activity.
-- Kiểm thử chất lượng AI ở cả hai ngôn ngữ.
+```sh
+open TodoList.xcodeproj
+```
 
-## Chạy
+1. Chọn scheme **TodoList**, một iPhone Simulator và Run.
+2. Ở màn hình đăng nhập, giữ URL **http://localhost:8000**.
+3. Trong bản **DEBUG**, chọn **Sign in to localhost (development server only)**.
+4. Bỏ qua onboarding hoặc chọn Việt/Anh, bổ sung context và lịch học tuần.
+5. Có thể tạo việc thủ công, đồng bộ, đề xuất lịch bằng thuật toán và chạy Pomodoro.
 
-Cần Xcode 16 trở lên, iOS 17 trở lên.
+Development login chỉ hoạt động khi backend ở `development`, có secret đủ dài và kết nối local. Compose cho phép gateway nội bộ Docker vì port chỉ publish lên loopback. Không dùng cấu hình local làm môi trường công khai. Release không có nút đăng nhập development.
 
-1. Mở `TodoList.xcodeproj`, chọn một iPhone simulator, bấm Run (⌘R).
-2. Ở phần thiết lập ban đầu: chọn ngôn ngữ, nhập khoá API Anthropic (tạo tại https://console.anthropic.com), tuỳ chọn nhập context và lịch học tuần. Mọi bước đều bỏ qua được.
-3. Để chạy trên máy thật: target **TodoList → Signing & Capabilities**, chọn Team và đổi Bundle Identifier (`com.example.TodoList`).
+Với iPhone thật, cần backend HTTPS truy cập được từ điện thoại và tài khoản đăng nhập thật. `localhost` trên iPhone thật là chính iPhone; development login không phải phương thức đăng nhập thiết bị thật.
+
+## Chưa có dịch vụ ngoài thì dùng được gì?
+
+| Chức năng | Local chưa có credentials |
+|---|---|
+| Đăng nhập development trên simulator | Có, theo hướng dẫn trên. |
+| Công việc, việc con, nhắc việc, việc lặp | Có. Bản lặp chính tiếp theo được tạo khi server nhận hoàn thành. |
+| Context người dùng tự nhập | Có, đồng bộ lên backend. |
+| Lịch tuần, commitment, đề xuất/duyệt lịch | Có; app báo thiếu dữ liệu nếu chưa nối lịch ngoài. |
+| Pomodoro và kết quả | Có; dùng local/offline sau khi đăng nhập. |
+| Hội thoại AI, chia việc, handoff AI, guidance/unblock | Cần khóa/model AI. Thiếu cấu hình báo lỗi rõ, không tạo kết quả giả. |
+| Email OTP/tài khoản thật | Cần Supabase Auth + SMTP. |
+| Google Calendar | Cần OAuth client và Calendar API. |
+| EventKit | Cần quyền và dữ liệu Calendar trên simulator/thiết bị. Không cần Google OAuth nếu chỉ đọc EventKit. |
+| Thanh toán | Chưa thuộc mốc đầu. |
+
+Không có credentials không ngăn app mở và dùng to-do, đồng bộ local cùng bộ lập lịch; không có nghĩa luồng AI/Google/OTP thật đã được nghiệm thu.
+
+## Cấu hình dịch vụ thật
+
+### Supabase / Auth / PostgreSQL
+
+- Điền `SUPABASE_URL`, `SUPABASE_ANON_KEY` (publishable/anon key cho Auth).
+- Bật email OTP, dùng template chứa mã OTP và SMTP cho người dùng thật. Backend có gửi, xác minh và refresh session.
+- Dùng signing key bất đối xứng ES256/RS256; backend kiểm tra JWKS, issuer, audience và hạn token.
+- Compose dùng PostgreSQL local. Khi triển khai với Supabase PostgreSQL, đặt `DATABASE_URL` bằng connection string phù hợp có SSL, rồi chạy migration ở đó. Không cấp DB role này cho app.
+- Migration bật RLS và thu hồi quyền Data API của `anon`/`authenticated` trên bảng nghiệp vụ. FastAPI là đường ghi chính, có kiểm tra owner.
+
+### AI
+
+- Điền `ANTHROPIC_API_KEY` và `AI_MODEL` thực sự được cấp quyền trên tài khoản.
+- Khóa nằm ở backend. Model là cấu hình, không hardcode trong iOS.
+- Chưa cấu hình thì job báo `ai_not_configured`; quota user được hoàn khi job kết thúc lỗi. Quota sản phẩm không đồng nghĩa chi phí provider.
+
+### Google Calendar / EventKit
+
+- Tạo OAuth **Web client**, bật Calendar API, đặt redirect đúng `${PUBLIC_URL}/v1/calendar/google/callback`. Thêm tài khoản thử vào consent screen nếu đang testing.
+- Điền `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_URL`; tạo `ENCRYPTION_KEY` theo `.env.example`. Giữ encryption key ổn định sau khi lưu refresh token.
+- Trong app: Cài đặt → Tài khoản và đồng bộ → Kết nối Google Calendar. Backend mặc định đọc lịch Google primary và ghi lịch Etsgo riêng.
+- Bật kết nối lịch iPhone để đọc EventKit. Khi dùng Google trực tiếp đồng thời, chọn nguồn EventKit và bỏ lịch Google trùng. Lịch Etsgo không tính là busy bên ngoài.
+- Duyệt lịch trong app chưa ghi Calendar. Phải xác nhận xuất riêng; một phiên chỉ có một đích. Xuất lại cùng đích bao gồm dọn các phiên Etsgo cũ không còn dùng.
+- Khi mất quyền hoặc dữ liệu ngoài bị sửa, cần kết nối/đối chiếu lại; gửi request không đồng nghĩa đã ghi thành công.
 
 ## Cấu trúc
 
-```
+```text
+backend/
+  app/config.py, auth.py           Cấu hình, Supabase JWT/OTP
+  app/db.py, schemas.py            Store và kiểm tra dữ liệu
+  app/sync.py                     Version, receipt, tombstone, CRUD
+  app/ai.py, worker.py             AI/context và job/quota bền vững
+  app/scheduler.py                Lập lịch và kiểm tra đề xuất
+  app/calendar.py                 OAuth, Google busy và xuất lịch
+  app/main.py                     API /v1, OpenAPI, proposal/accept
+  migrations/                     Alembic migrations
+  tests/                          Các kiểm tra PostgreSQL đã có
 TodoList/
-├── TodoListApp.swift              # Điểm vào, 4 tab, thiết lập ban đầu
-├── Models/
-│   ├── AppLanguage.swift          # Việt / Anh, hàm L(vi, en)
-│   ├── TodoItem.swift             # Công việc, bước, ContextItem, FocusSession
-│   └── StudySchedule.swift        # Lịch học tuần, cam kết theo ngày
-├── Services/
-│   ├── AIService.swift            # Các lời gọi Claude và prompt
-│   ├── Scheduler.swift            # Đề xuất lịch theo cam kết và ràng buộc
-│   ├── CalendarService.swift      # Lịch của iPhone (EventKit)
-│   ├── NotificationService.swift  # Nhắc việc, báo hết phiên
-│   ├── SpeechRecognizer.swift     # Giọng nói thành văn bản
-│   └── KeychainStore.swift        # Lưu khoá API
-└── Views/
-    ├── Theme.swift                # Màu, kiểu chữ, thành phần dùng chung
-    ├── TodoListView.swift         # Tab Công việc
-    ├── TodoRowView.swift          # Thẻ công việc
-    ├── TodoEditorView.swift       # Form thêm/sửa
-    ├── PlannerView.swift          # Tab Kế hoạch: hội thoại lập kế hoạch học
-    ├── ScheduleView.swift         # Tab Lịch: cam kết, đề xuất, duyệt
-    ├── PomodoroView.swift         # Phiên tập trung
-    ├── ContextView.swift          # Context cá nhân và handoff
-    ├── SettingsView.swift         # Tab Cài đặt, lịch học tuần
-    └── OnboardingView.swift       # Thiết lập ban đầu
+  Models/SyncState.swift           SyncRecord, outbox, PlannedSession
+  Services/BackendClient.swift    Auth session, API và job polling
+  Services/SyncCoordinator.swift  Local outbox, push/pull, conflict
+  Services/CalendarService.swift  EventKit snapshot và lệnh đã duyệt
+  Views/                          SwiftUI và Pomodoro local
 ```
+
+SwiftData là bản local; server giữ dữ liệu chính. AI tạo proposal, backend kiểm tra và áp dụng sau duyệt. Worker và quota dùng PostgreSQL chung, không cần Redis. Context được lưu có nguồn/phạm vi, bản tóm tắt cho AI là dữ liệu dẫn xuất.
+
+Conflict xử lý ở Cài đặt → Tài khoản và đồng bộ. Đăng xuất kiểm tra thay đổi chưa đồng bộ trước khi xóa cache; không chuyển dữ liệu tài khoản cũ sang tài khoản mới.
+
+## Chạy Python trực tiếp
+
+Cần PostgreSQL, Python 3.12 và `.env` ở gốc repository. Trong `backend/`:
+
+```sh
+python3 -m venv ../.venv
+source ../.venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+Terminal khác, activate cùng virtualenv, vào `backend/`, chạy `python -m app.worker`. `DATABASE_URL` phải trỏ tới PostgreSQL đang chạy. Có thể chỉ chạy database bằng `docker compose up db` và dùng connection string local trong `.env.example`.
+
+## Trạng thái bàn giao
+
+- Trước yêu cầu tạm bỏ qua kiểm thử: đã chạy 13 ca backend trên PostgreSQL thật ở Windows. CI của commit `facdc93` có backend và build iOS Simulator trên macOS thành công.
+- Các sửa bàn giao sau commit đó **chưa chạy lại test/build** theo yêu cầu. Xem Git history để phân biệt phần đã qua CI với phần mới.
+- Chưa chạy app tương tác trên simulator/iPhone; chưa nghiệm thu OTP, AI hoặc Google thật vì chưa có dịch vụ/credentials. Chất lượng AI Việt/Anh, backup/restore và các tình huống đầy đủ cần làm trước phát hành.
+- Workflow `.github/workflows/ci.yml` có kiểm tra PostgreSQL và build Xcode để nhóm dùng khi tiếp tục. Chưa chạy không có nghĩa đã đạt.
+- `.env`, `.venv`, `.tools` không thuộc nguồn bàn giao. PostgreSQL portable đang dùng trên Windows nằm trong `.tools`; teammate Mac dùng Docker hoặc PostgreSQL của Mac.
+- Giá trị chưa chốt: model AI cuối, hạn mức thương mại, chính sách dữ liệu người chưa thành niên và hosting thật. Google hiện đọc primary; việc chọn thêm nhiều lịch Google chưa có giao diện cấu hình trong bản này.
+
+## Lệnh khi nhóm tiếp tục kiểm thử
+
+Tạo PostgreSQL riêng tên `etsgo_test`, đặt `DATABASE_URL` trỏ tới đó, chạy trong `backend/`:
+
+```sh
+alembic upgrade head
+pytest -q
+ruff check .
+```
+
+Không trỏ test vào database người dùng. Fake provider trong test chỉ kiểm tra job/error flow, không chứng minh tích hợp AI thật.
+
+Build simulator trên Mac:
+
+```sh
+xcodebuild -project TodoList.xcodeproj -scheme TodoList -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+```
+
+`docker compose down` dừng môi trường, giữ volume. Không dùng `down -v` nếu muốn giữ dữ liệu. Backup bằng `pg_dump`, restore vào database riêng bằng `pg_restore`, rồi xác nhận dữ liệu trước khi coi backup dùng được.

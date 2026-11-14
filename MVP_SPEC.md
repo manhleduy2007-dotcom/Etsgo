@@ -6,6 +6,8 @@ Tài liệu tổng hợp các quyết định sản phẩm và kỹ thuật đã
 
 Mô hình kinh doanh đi kèm: [BUSINESS_MODEL_CANVAS.md](BUSINESS_MODEL_CANVAS.md).
 
+Cập nhật triển khai: nhánh `feature/backend-integration` đã bổ sung backend và lớp nối iOS theo thiết kế này. Cách chạy, trạng thái xác minh và giới hạn hiện tại được ghi tại [README.md](README.md). Thiết kế mục 12–17 là đích yêu cầu; không dùng nó làm bằng chứng mọi tình huống đã nghiệm thu. Người sáng lập yêu cầu hoàn thiện bàn giao code cho teammate chạy trên Mac và tạm bỏ qua kiểm thử bổ sung.
+
 Agent tiếp nhận công việc: đọc mục 11–12 trước, sau đó mục 14–16 và phần việc được giao tại mục 15. Phân biệt context bàn giao dự án với context cá nhân của người dùng được mô tả trong sản phẩm. Mục 12 ghi nhận quyết định kỹ thuật mới hơn và thay thế các điểm tương ứng từng để mở tại mục 10.
 
 ## 1. Mục tiêu và định vị

@@ -27,8 +27,8 @@ struct OnboardingView: View {
                         Text("AI")
                     } footer: {
                         Text(L(
-                            "Bản thử nghiệm cần khoá API Anthropic để dùng tính năng AI. Có thể thêm sau trong Cài đặt.",
-                            "This test build needs an Anthropic API key for AI features. You can add it later in Settings."
+                            "AI dùng tài khoản và hạn mức backend. Có thể bỏ qua thiết lập để bắt đầu.",
+                            "AI uses your backend account and usage limit. You can skip setup to get started."
                         ))
                     }
                 case 1:
