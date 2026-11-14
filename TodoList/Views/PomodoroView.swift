@@ -10,6 +10,7 @@ struct PomodoroView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var contextItems: [ContextItem]
     @Bindable var item: TodoItem
 
@@ -19,6 +20,9 @@ struct PomodoroView: View {
     @State private var endDate: Date?
     @State private var paused = false
     @State private var lastFocusSeconds = 0
+    @State private var runID = UUID().uuidString.lowercased()
+    @State private var actualStart = Date.now
+    @State private var lastSessionID: String?
 
     @State private var loadingGuidance = false
     @State private var guidanceNote: String?
@@ -81,7 +85,11 @@ struct PomodoroView: View {
         }
         .background(Theme.bg.ignoresSafeArea())
         .onReceive(ticker) { _ in tick() }
+        .interactiveDismissDisabled()
+        .onChange(of: scenePhase) { _, phase in if phase != .active { persist() } }
         .task {
+            restore()
+            await SyncCoordinator.shared.sync(context)
             if item.guidanceTip.isEmpty { await loadGuidance(excluding: "") }
         }
     }
@@ -246,6 +254,7 @@ struct PomodoroView: View {
             .foregroundStyle(Theme.ink)
 
             Button {
+                setOutcome("done")
                 context.setDone(item, true)
                 close()
             } label: {
@@ -266,6 +275,7 @@ struct PomodoroView: View {
                 .padding(14)
                 Divider()
                 Button {
+                    setOutcome("more_time")
                     // Tăng ước lượng và bỏ giờ đã xếp: lịch mới sẽ được đề xuất để người dùng duyệt ở tab Lịch.
                     item.estimatedMinutes = extraMinutes
                     item.scheduledStart = nil
@@ -282,6 +292,7 @@ struct PomodoroView: View {
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
 
             choice(L("Đang vướng", "I'm stuck"), "questionmark.circle.fill") {
+                setOutcome("stuck")
                 item.isStuck = true
                 phase = .stuck
             }
@@ -383,6 +394,8 @@ struct PomodoroView: View {
         paused = false
         phase = next
         endDate = Date.now.addingTimeInterval(total)
+        if next == .focus { runID = UUID().uuidString.lowercased(); actualStart = .now }
+        persist()
         scheduleEndNotification()
         if next == .focus {
             Task { _ = await NotificationService.requestAccess() }
@@ -401,21 +414,25 @@ struct PomodoroView: View {
     }
 
     private func pause() {
+        if let endDate { remaining = max(0, endDate.timeIntervalSinceNow) }
         paused = true
         endDate = nil
         NotificationService.cancel(notificationID)
+        persist()
     }
 
     private func resume() {
         paused = false
         endDate = Date.now.addingTimeInterval(remaining)
         scheduleEndNotification()
+        persist()
     }
 
     /// Dùng mốc kết thúc thay vì đếm từng giây, nên bộ đếm vẫn đúng sau khi app ở nền.
     private func tick() {
         guard phase == .focus || phase == .rest, !paused, let endDate else { return }
         remaining = max(endDate.timeIntervalSinceNow, 0)
+        persist()
         guard remaining == 0 else { return }
         if phase == .focus {
             finishFocus()
@@ -426,32 +443,81 @@ struct PomodoroView: View {
 
     private func finishFocus() {
         NotificationService.cancel(notificationID)
+        if !paused, let endDate { remaining = max(0, endDate.timeIntervalSinceNow) }
         let seconds = Int(total - remaining)
         lastFocusSeconds = seconds
-        item.spentSeconds += seconds
-        context.insert(FocusSession(taskTitle: item.title, focusSeconds: seconds))
+        recordFocus(seconds)
         endDate = nil
         extraMinutes = 25
         phase = .feedback
+        UserDefaults.standard.removeObject(forKey: "activePomodoro")
     }
 
     private func backToSetup() {
         NotificationService.cancel(notificationID)
         endDate = nil
         phase = .setup
+        UserDefaults.standard.removeObject(forKey: "activePomodoro")
     }
 
     private func close() {
         if phase == .focus {
             // Đóng giữa phiên vẫn ghi lại thời gian đã tập trung.
+            if !paused, let endDate { remaining = max(0, endDate.timeIntervalSinceNow) }
             let seconds = Int(total - remaining)
             if seconds > 0 {
-                item.spentSeconds += seconds
-                context.insert(FocusSession(taskTitle: item.title, focusSeconds: seconds))
+                recordFocus(seconds)
             }
         }
+        UserDefaults.standard.removeObject(forKey: "activePomodoro")
+        try? context.save()
+        try? SyncCoordinator.shared.capture(context)
         NotificationService.cancel(notificationID)
         dismiss()
+    }
+
+    private func recordFocus(_ seconds: Int) {
+        let sessions = (try? context.fetch(FetchDescriptor<FocusSession>())) ?? []
+        if !sessions.contains(where: { $0.uid == runID }) {
+            let session = FocusSession(taskTitle: item.title, focusSeconds: max(0, seconds))
+            session.uid = runID; session.taskID = item.uid
+            session.startedAt = actualStart; session.finishedAt = .now
+            context.insert(session)
+            item.spentSeconds += max(0, seconds)
+        }
+        lastSessionID = runID
+        try? context.save()
+    }
+
+    private func setOutcome(_ outcome: String) {
+        guard let id = lastSessionID else { return }
+        let sessions = (try? context.fetch(FetchDescriptor<FocusSession>())) ?? []
+        sessions.first { $0.uid == id }?.outcomeRaw = outcome
+        try? context.save()
+    }
+
+    private func persist() {
+        guard phase == .focus || phase == .rest else { return }
+        let value: [String: Any] = ["task_id": item.uid, "run_id": runID, "owner": BackendClient.shared.userID ?? "",
+            "phase": phase == .focus ? "focus" : "rest", "total": total, "remaining": remaining,
+            "paused": paused, "end": endDate?.timeIntervalSince1970 ?? 0, "start": actualStart.timeIntervalSince1970]
+        UserDefaults.standard.set(try? JSONSerialization.data(withJSONObject: value), forKey: "activePomodoro")
+    }
+
+    private func restore() {
+        guard let data = UserDefaults.standard.data(forKey: "activePomodoro"),
+              let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              value["task_id"] as? String == item.uid,
+              value["owner"] as? String == BackendClient.shared.userID else { return }
+        runID = value["run_id"] as? String ?? UUID().uuidString.lowercased()
+        total = value["total"] as? Double ?? 1500
+        remaining = value["remaining"] as? Double ?? total
+        paused = value["paused"] as? Bool ?? false
+        actualStart = Date(timeIntervalSince1970: value["start"] as? Double ?? Date.now.timeIntervalSince1970)
+        let end = value["end"] as? Double ?? 0
+        endDate = end > 0 ? Date(timeIntervalSince1970: end) : nil
+        phase = value["phase"] as? String == "rest" ? .rest : .focus
+        tick()
     }
 
     // MARK: - AI
@@ -465,7 +531,8 @@ struct PomodoroView: View {
                 task: item.title,
                 goal: item.parent?.title ?? "",
                 context: buildPromptContext(contextItems),
-                excluding: excluding
+                excluding: excluding,
+                taskID: item.uid
             )
             item.guidanceTip = result.tip
             item.resourceTitle = result.resourceTitle
@@ -486,7 +553,8 @@ struct PomodoroView: View {
                     task: item.title,
                     goal: item.parent?.title ?? "",
                     problem: problem,
-                    context: buildPromptContext(contextItems)
+                    context: buildPromptContext(contextItems),
+                    taskID: item.uid
                 )
             } catch {
                 errorText = error.localizedDescription

@@ -14,9 +14,18 @@
 		7A10000000000000000000B1 /* TodoList */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = TodoList;
+			exceptions = (7A10000000000000000000B2,);
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7A10000000000000000000B2 = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (Info.plist,);
+			target = 7A10000000000000000000E1;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		7A10000000000000000000C1 /* Frameworks */ = {
@@ -178,6 +187,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TodoList/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Việc cần làm";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và, khi bạn duyệt, ghi các phiên học vào Lịch.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ứng dụng dùng micro để bạn nhập yêu cầu bằng giọng nói.";
@@ -209,6 +219,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TodoList/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Việc cần làm";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Ứng dụng đọc lịch để tránh xếp trùng giờ bận và, khi bạn duyệt, ghi các phiên học vào Lịch.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ứng dụng dùng micro để bạn nhập yêu cầu bằng giọng nói.";

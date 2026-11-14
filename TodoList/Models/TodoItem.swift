@@ -87,7 +87,7 @@ enum RepeatRule: String, CaseIterable, Identifiable {
 
 @Model
 final class TodoItem {
-    var uid: String = UUID().uuidString
+    var uid: String = UUID().uuidString.lowercased()
     var title: String = ""
     var notes: String = ""
     var isDone: Bool = false
@@ -219,6 +219,10 @@ final class TodoItem {
 /// Một mẩu context cá nhân. Phân biệt điều người dùng xác nhận với thông tin nhập từ AI khác.
 @Model
 final class ContextItem {
+    var uid: String = UUID().uuidString.lowercased()
+    var scope: String = "personal"
+    var scopeID: String?
+    var validUntil: Date?
     var text: String = ""
     /// "user" (người dùng tự nhập), "handoff" (từ AI khác), "assumption" (AI suy đoán).
     var sourceRaw: String = "user"
@@ -251,6 +255,9 @@ final class ContextItem {
 /// Một phiên tập trung đã chạy. Thời gian chạy không đồng nghĩa việc đã xong.
 @Model
 final class FocusSession {
+    var uid: String = UUID().uuidString.lowercased()
+    var taskID: String?
+    var finishedAt: Date?
     var taskTitle: String = ""
     var startedAt: Date = Date.now
     var focusSeconds: Int = 0
@@ -284,7 +291,7 @@ extension ModelContext {
         if done {
             item.isStuck = false
             NotificationService.cancel(item.uid)
-            if item.parent == nil, let nextDue = item.repeatRule.next(after: item.dueDate ?? .now) {
+            if !BackendClient.shared.signedIn, item.parent == nil, let nextDue = item.repeatRule.next(after: item.dueDate ?? .now) {
                 let copy = TodoItem(
                     title: item.title,
                     notes: item.notes,

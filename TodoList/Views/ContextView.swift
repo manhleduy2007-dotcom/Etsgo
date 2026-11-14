@@ -85,18 +85,11 @@ struct HandoffImportView: View {
             defer { busy = false }
             do {
                 let drafts = try await AIService().summarizeHandoff(text: text)
-                for draft in drafts where !draft.text.isEmpty {
-                    // Kể cả điều AI kia nói là người dùng đã phát biểu cũng chỉ là thông tin nhập, chưa phải xác nhận hiện tại.
-                    context.insert(ContextItem(text: draft.text, source: draft.stated ? "handoff" : "assumption", confirmed: false))
-                }
+                await SyncCoordinator.shared.sync(context)
                 pasted = ""
                 status = L("Đã thêm \(drafts.count) mục, chờ bạn xem lại.", "Added \(drafts.count) items for you to review.")
             } catch {
-                // Không gọi được AI thì vẫn giữ nguyên văn để người dùng tự sửa.
-                context.insert(ContextItem(text: text, source: "handoff", confirmed: false))
-                pasted = ""
-                status = error.localizedDescription
-                    + L(" Đã lưu nguyên văn thành một mục chưa xác nhận.", " The text was saved as-is as one unconfirmed item.")
+                status = error.localizedDescription // Preserve input for a deliberate retry.
             }
         }
     }

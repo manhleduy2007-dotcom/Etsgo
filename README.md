@@ -14,6 +14,32 @@ Baseline code được đọc là `aa9f237` trên nhánh `claude/dreamy-sagan-l6
 
 ## Trạng thái
 
+Nhánh `feature/backend-integration` bổ sung backend FastAPI/PostgreSQL và chuyển app sang gọi backend. Phần mô tả baseline `aa9f237` bên dưới được giữ làm lịch sử đối chiếu; xem cách chạy mới ở phần này. Chưa có credentials Supabase/AI/Google trong repository; không có fallback giả làm tích hợp thành công.
+
+### Chạy backend trên Mac với Docker
+
+1. Sao chép `.env.example` thành `.env` ở thư mục gốc; điền cấu hình dịch vụ để dùng OTP, AI và Google.
+2. Chạy `docker compose up --build`. Migration chạy trước API và worker.
+3. Kiểm tra `http://localhost:8000/health` và API docs tại `/docs`.
+4. Mở Xcode project, chọn simulator và Run. URL backend mặc định là `http://localhost:8000`; thiết bị thật cần URL HTTPS truy cập được từ iPhone (localhost trên iPhone là chính iPhone).
+
+Nếu chưa có dịch vụ ngoài, đặt `ENVIRONMENT=development` và `DEV_AUTH_SECRET` là chuỗi ngẫu nhiên ít nhất 32 ký tự trong `.env`. Trong bản DEBUG ở iOS Simulator, chọn **Sign in to localhost**. Endpoint này chỉ nhận client loopback và bị tắt khi `ENVIRONMENT=production`. Nó dùng để kiểm tra dữ liệu/to-do/lịch/Pomodoro local, không thay thế nghiệm thu OTP, AI hoặc Google.
+
+### Cấu hình tích hợp thật
+
+- Supabase: tạo project; dùng PostgreSQL connection string ở `DATABASE_URL` khi chạy ngoài Compose, URL project và publishable/anon key cho Auth; bật email OTP, cấu hình template hiển thị mã và SMTP. Dùng signing key bất đối xứng (ES256/RS256); backend kiểm tra JWKS và issuer. DB connection phải là role được phép chạy migration và truy cập bảng riêng; app không được cấp role này.
+- AI: `ANTHROPIC_API_KEY` và `AI_MODEL` phải là khóa/model được phép trên tài khoản. App không lưu khóa provider. Chưa cấu hình thì job trả `ai_not_configured` và hoàn quota người dùng.
+- Google: OAuth Web client, bật Calendar API; redirect chính xác `${PUBLIC_URL}/v1/calendar/google/callback`; thêm tài khoản thử nghiệm vào consent screen nếu đang testing. Tạo `ENCRYPTION_KEY` theo lệnh trong `.env.example`, giữ ổn định để đọc được refresh token đã lưu.
+- Kết nối Google trong Cài đặt → Tài khoản và đồng bộ. Khi đọc cả EventKit và Google, chọn lịch EventKit để loại các lịch Google đã đọc trực tiếp. Chỉ ghi lịch ngoài sau khi xác nhận đích xuất.
+
+### Chạy và kiểm thử không dùng Docker
+
+Từ `backend/`, tạo virtualenv Python 3.12, cài `pip install -r requirements.txt`, đặt biến môi trường theo `.env.example`, chạy `alembic upgrade head`. Mở hai terminal chạy `uvicorn app.main:app --host 127.0.0.1 --port 8000` và `python -m app.worker`. Khi chạy từ `backend/`, đặt env trực tiếp hoặc đặt file `.env` ở thư mục đó; không commit file này.
+
+Test yêu cầu PostgreSQL riêng tên `etsgo_test`; đặt `DATABASE_URL` trỏ tới nó, chạy migration, rồi `pytest -q` và `ruff check .` trong `backend/`. Test dùng provider fake có chủ đích để kiểm tra lỗi/job; không chứng minh chất lượng AI thật. CI chạy test PostgreSQL và build simulator bằng Xcode trên macOS.
+
+Không dùng `docker compose down -v` nếu muốn giữ dữ liệu. Backup PostgreSQL bằng `pg_dump`, restore vào database thử riêng bằng `pg_restore`, chạy health/smoke test và đối chiếu dữ liệu trước khi coi backup dùng được.
+
 Mã nguồn đã viết theo đặc tả nhưng **chưa từng được biên dịch hay chạy** (môi trường viết mã không có Xcode), kể cả `TodoList.xcodeproj/project.pbxproj`. Chưa có unit test. Mọi mục "đã có" bên dưới nghĩa là đã có mã, chưa phải đã kiểm chứng.
 
 ## Yêu cầu trong đặc tả và mã tương ứng

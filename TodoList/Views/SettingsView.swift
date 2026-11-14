@@ -53,28 +53,8 @@ struct WeeklyScheduleScreen: View {
 }
 
 struct APIKeyFields: View {
-    @State private var apiKey = ""
-    @State private var hasSavedKey = KeychainStore.apiKey != nil
-
     var body: some View {
-        SecureField(
-            hasSavedKey ? L("Đã lưu khoá (nhập để thay)", "Key saved (type to replace)") : L("Khoá API Anthropic", "Anthropic API key"),
-            text: $apiKey
-        )
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        Button(L("Lưu khoá", "Save key")) {
-            KeychainStore.setAPIKey(apiKey)
-            apiKey = ""
-            hasSavedKey = KeychainStore.apiKey != nil
-        }
-        .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        if hasSavedKey {
-            Button(L("Xoá khoá", "Remove key"), role: .destructive) {
-                KeychainStore.setAPIKey("")
-                hasSavedKey = false
-            }
-        }
+        Text(L("AI được cấu hình và quản lý hạn mức tại backend.", "AI credentials and usage limits are managed by the backend."))
     }
 }
 
@@ -124,13 +104,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    APIKeyFields()
+                    NavigationLink(L("Tài khoản và đồng bộ", "Account and sync")) { BackendSettingsView() }
                 } header: {
                     Text("AI")
                 } footer: {
                     Text(L(
-                        "Bản thử nghiệm gọi thẳng Claude (\(AIService.model)) bằng khoá của bạn, lưu trong Keychain của máy. Nội dung công việc và context được gửi tới Anthropic khi bạn dùng tính năng AI. Tạo việc thủ công không cần AI.",
-                        "This test build calls Claude (\(AIService.model)) directly with your key, stored in this device's Keychain. Task content and context are sent to Anthropic when you use AI features. Adding tasks by hand needs no AI."
+                        "AI chạy qua backend. Công việc và context đồng bộ theo tài khoản. To-do và Pomodoro dùng được offline.",
+                        "AI runs through the backend. Tasks and context sync with your account. Manual tasks and Pomodoro work offline."
                     ))
                 }
 
@@ -158,4 +138,103 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+}
+
+struct BackendSettingsView: View {
+    @Environment(\.modelContext) private var context
+    @Environment(\.openURL) private var openURL
+    @ObservedObject private var sync = SyncCoordinator.shared
+    @ObservedObject private var api = BackendClient.shared
+    @State private var note = ""
+    @State private var calendars: [(id: String, title: String)] = []
+    @State private var selected: Set<String> = []
+    @State private var confirmLogout = false
+    @State private var reauthenticate = false
+    var body: some View {
+        Form {
+            Section(L("Đồng bộ", "Sync")) {
+                Button(L("Đăng nhập lại", "Renew sign-in")) { reauthenticate = true }
+                Text(sync.status)
+                Button(L("Đồng bộ ngay", "Sync now")) { Task { await sync.sync(context) } }
+                Button(L("Xem hạn mức AI", "Check AI usage")) {
+                    Task { @MainActor in
+                        do { let value = try await api.request("GET", "/v1/usage"); note = "\(value["used"] ?? 0) / \(value["limit"] ?? 0)" }
+                        catch { note = error.localizedDescription }
+                    }
+                }
+                if sync.hasConflicts {
+                    Text(L("Có thay đổi xung đột. Chọn bản giữ lại; dữ liệu đã xóa trên server không được tự phục hồi.", "Conflicting edits need review. Server-deleted records cannot be restored implicitly."))
+                    Button(L("Giữ các sửa local", "Keep local edits")) { resolve(true) }
+                    Button(L("Dùng bản server", "Use server versions")) { resolve(false) }
+                }
+            }
+            Section("Google Calendar") {
+                Button(L("Kết nối Google Calendar", "Connect Google Calendar")) {
+                    Task { @MainActor in
+                        do {
+                            let result = try await api.request("POST", "/v1/calendar/google/connect")
+                            if let text = result["url"] as? String, let url = URL(string: text) { openURL(url) }
+                        } catch { note = error.localizedDescription }
+                    }
+                }
+            }
+            Section(L("Nguồn đọc EventKit", "EventKit read sources")) {
+                Text(L("Nếu Google đã kết nối trực tiếp, bỏ chọn các lịch Google trùng ở đây.", "When Google is connected directly, deselect the same Google calendars here."))
+                Button(L("Tải danh sách lịch", "Load calendars")) {
+                    Task { @MainActor in
+                        if await CalendarService.shared.requestAccess() {
+                            calendars = CalendarService.shared.calendars()
+                            selected = Set(UserDefaults.standard.stringArray(forKey: "eventkitReadCalendars") ?? calendars.map(\.id))
+                        }
+                    }
+                }
+                ForEach(calendars, id: \.id) { calendar in
+                    Toggle(calendar.title, isOn: Binding(get: { selected.contains(calendar.id) }, set: {
+                        if $0 { selected.insert(calendar.id) } else { selected.remove(calendar.id) }
+                        UserDefaults.standard.set(Array(selected), forKey: "eventkitReadCalendars")
+                    }))
+                }
+                Button(L("Lưu nguồn đã chọn", "Save selected sources")) {
+                    UserDefaults.standard.set(Array(selected), forKey: "eventkitReadCalendars")
+                }
+            }
+            if !note.isEmpty { Text(note) }
+            Section {
+                Button(L("Đăng xuất và xóa bản local", "Sign out and clear local cache"), role: .destructive) { confirmLogout = true }
+            }
+        }
+        .navigationTitle(L("Tài khoản", "Account"))
+        .sheet(isPresented: $reauthenticate) { AccountView() }
+        .confirmationDialog(L("Đồng bộ rồi đăng xuất?", "Sync and sign out?"), isPresented: $confirmLogout) {
+            Button(L("Xác nhận", "Confirm"), role: .destructive) { logout() }
+        }
+    }
+    private func resolve(_ keep: Bool) {
+        do { try sync.resolve(context, keepLocal: keep); Task { await sync.sync(context) } }
+        catch { note = error.localizedDescription }
+    }
+    private func logout() {
+        Task { @MainActor in
+            await sync.sync(context)
+            do {
+                try sync.capture(context)
+                guard try context.fetch(FetchDescriptor<PendingOperation>()).isEmpty else {
+                    note = L("Còn thay đổi chưa đồng bộ. Hãy đồng bộ hoặc giải quyết xung đột trước.", "Unsynced edits remain. Sync or resolve conflicts first."); return
+                }
+                api.signOut()
+                for item in try context.fetch(FetchDescriptor<TodoItem>()) { context.delete(item) }
+                for item in try context.fetch(FetchDescriptor<ContextItem>()) { context.delete(item) }
+                for item in try context.fetch(FetchDescriptor<FocusSession>()) { context.delete(item) }
+                for item in try context.fetch(FetchDescriptor<PlannedSession>()) { context.delete(item) }
+                for item in try context.fetch(FetchDescriptor<SyncRecord>()) { context.delete(item) }
+                for item in try context.fetch(FetchDescriptor<PendingOperation>()) { context.delete(item) }
+                try context.save()
+                for key in UserDefaults.standard.dictionaryRepresentation().keys where
+                    key.hasPrefix("sync") || key.hasPrefix("commit-") || key.hasPrefix("planner") ||
+                    ["localOwner", "weeklySchedule", "activePomodoro", "eventkitReadCalendars", "eventkitOutputCalendar"].contains(key) {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+            } catch { note = error.localizedDescription }
+        }
+    }
 }

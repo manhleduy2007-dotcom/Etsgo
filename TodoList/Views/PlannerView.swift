@@ -108,6 +108,7 @@ struct PlannerView: View {
             inputBar
         }
         .background(Theme.bg.ignoresSafeArea())
+        .task { await restoreConversation() }
     }
 
     private var intro: some View {
@@ -370,23 +371,52 @@ struct PlannerView: View {
     /// Tạo một mục tiêu với các bước đã duyệt. Chưa xếp lịch: lịch được đề xuất và duyệt ở tab Lịch.
     private func accept() {
         guard let draft, !draft.steps.isEmpty else { return }
-        let goal = TodoItem(title: draft.title.isEmpty ? L("Kế hoạch học", "Study plan") : draft.title)
-        goal.category = .study
-        goal.notes = draft.later.joined(separator: "\n")
-        context.insert(goal)
-        for step in draft.steps where !step.title.trimmingCharacters(in: .whitespaces).isEmpty {
-            goal.addSubtask(title: step.title, estimatedMinutes: step.minutes, focus: step.focus, rest: step.rest)
+        busy = true
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let steps: [[String: Any]] = draft.steps.map {
+                    ["title": $0.title, "estimated_minutes": $0.minutes, "focus_minutes": $0.focus, "break_minutes": $0.rest]
+                }
+                try await AIService().acceptPlan(["type": "plan", "message": "", "title": draft.title,
+                    "quick_replies": [], "steps": steps, "later": draft.later, "based_on": draft.basedOn, "assumptions": draft.assumptions])
+                await SyncCoordinator.shared.sync(context)
+                self.draft = nil; bubbles = []; history = []
+                notice = L("Đã lưu kế hoạch. Mở tab Lịch để xếp phiên học.", "Plan saved. Open Schedule to plan sessions.")
+            } catch { errorText = error.localizedDescription }
         }
-        notice = L(
-            "Đã thêm \"\(goal.title)\" với \(goal.subtasks.count) bước vào tab Công việc. Mở tab Lịch để xem đề xuất giờ học, hoặc bấm nút ▶ để bắt đầu ngay.",
-            "Added \"\(goal.title)\" with \(goal.subtasks.count) steps to the Tasks tab. Open Schedule for proposed study times, or tap ▶ to start now."
-        )
-        self.draft = nil
-        bubbles = []
-        history = []
+    }
+
+    private func restoreConversation() async {
+        guard bubbles.isEmpty, let id = UserDefaults.standard.string(forKey: "plannerConversationID") else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            let response = try await BackendClient.shared.request("GET", "/v1/conversations/"+id)
+            for message in response["messages"] as? [[String: Any]] ?? [] {
+                let user = message["role"] as? String == "user"
+                if let text = message["content"] as? String { bubbles.append(Bubble(fromUser: user, text: text)) }
+                if let turn = message["content"] as? [String: Any], let text = turn["message"] as? String {
+                    bubbles.append(Bubble(fromUser: false, text: text, quickReplies: turn["quick_replies"] as? [String] ?? []))
+                }
+            }
+            if let jobID = response["job_id"] as? String {
+                let result = try await BackendClient.shared.waitForJob(["job_id": jobID])
+                let turn = try BackendClient.shared.decode(PlanTurn.self, result)
+                if turn.type == "plan" {
+                    draft = Draft(title: turn.title, steps: turn.steps.map { DraftStep(title: $0.title,
+                        minutes: $0.estimatedMinutes, focus: $0.focusMinutes, rest: $0.breakMinutes) },
+                        later: turn.later, basedOn: turn.basedOn, assumptions: turn.assumptions)
+                    UserDefaults.standard.set(result["proposal_id"], forKey: "plannerProposalID")
+                    UserDefaults.standard.set(result["proposal_version"], forKey: "plannerProposalVersion")
+                }
+            }
+        } catch { errorText = error.localizedDescription }
     }
 
     private func reset() {
+        UserDefaults.standard.removeObject(forKey: "plannerConversationID")
+        UserDefaults.standard.removeObject(forKey: "plannerProposalID")
         bubbles = []
         history = []
         draft = nil
