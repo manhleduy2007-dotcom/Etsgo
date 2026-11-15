@@ -54,6 +54,11 @@ def apply(db, owner, op):
         return previous
     identity = str(op.entity_id)
     current = db.get(Entity, (owner, op.entity_type, identity))
+    if op.action == "delete" and current and current.deleted:
+        # Already removed, e.g. by the cascade of a parent deleted in the same batch.
+        # Deleting again changes nothing, so it is not a conflict.
+        return remember(db, owner, key, payload,
+                        {"operation_id": str(op.operation_id), "status": "applied", "entity": wire(current)})
     if (current.version if current else 0) != op.expected_version or (current and current.deleted):
         return {"operation_id": str(op.operation_id), "status": "conflict",
                 "current": wire(current) if current else None}

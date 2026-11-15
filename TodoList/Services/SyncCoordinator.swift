@@ -38,9 +38,14 @@ final class SyncCoordinator: ObservableObject {
 
     func capture(_ db: ModelContext) throws {
         var values: [(String, String, [String: Any])] = []
+        // Every local row, including ones not queued yet, so they are never mistaken for deletions.
+        var present = Set<String>()
         let tasks = try db.fetch(FetchDescriptor<TodoItem>())
         for task in tasks {
             task.uid = task.uid.lowercased()
+            present.insert("task:" + task.uid)
+            // The server rejects empty titles; wait until the user finishes typing one.
+            if task.title.isEmpty { continue }
             values.append(("task", task.uid, ["title": task.title, "notes": task.notes,
                 "parent_id": task.parent?.uid as Any? ?? NSNull(), "order": task.order, "is_done": task.isDone,
                 "due": task.dueDate.map(iso) as Any? ?? NSNull(), "priority": task.priority.apiName,
@@ -52,12 +57,15 @@ final class SyncCoordinator: ObservableObject {
         values.sort { ($0.2["parent_id"] is NSNull ? 0 : 1) < ($1.2["parent_id"] is NSNull ? 0 : 1) }
         for fact in try db.fetch(FetchDescriptor<ContextItem>()) {
             fact.uid = fact.uid.lowercased()
+            present.insert("context:" + fact.uid)
+            if fact.text.isEmpty { continue }
             values.append(("context", fact.uid, ["text": fact.text, "source": fact.sourceRaw, "confirmed": fact.confirmed,
                 "scope": fact.scope, "scope_id": fact.scopeID as Any? ?? NSNull(),
                 "valid_until": fact.validUntil.map(iso) as Any? ?? NSNull()]))
         }
         for focus in try db.fetch(FetchDescriptor<FocusSession>()) {
             focus.uid = focus.uid.lowercased()
+            present.insert("focus:" + focus.uid)
             values.append(("focus", focus.uid, ["task_id": focus.taskID as Any? ?? NSNull(),
                 "planned_id": NSNull(), "task_title": focus.taskTitle, "started_at": iso(focus.startedAt),
                 "finished_at": focus.finishedAt.map(iso) as Any? ?? NSNull(), "focus_seconds": focus.focusSeconds,
@@ -78,6 +86,14 @@ final class SyncCoordinator: ObservableObject {
                        ["day": dayString, "minutes": StudySchedule.commitment(for: .now)]))
         let records = try db.fetch(FetchDescriptor<SyncRecord>())
         let pending = try db.fetch(FetchDescriptor<PendingOperation>())
+        // Strictly increasing timestamps keep parents ahead of children when the outbox is sorted.
+        let base = Date.now
+        var sequence = 0
+        func enqueue(_ operation: PendingOperation) {
+            operation.createdAt = base.addingTimeInterval(Double(sequence) * 0.001)
+            sequence += 1
+            db.insert(operation)
+        }
         for (kind, id, payload) in values {
             let record = records.first { $0.kind == kind && $0.entityID == id } ?? {
                 let value = SyncRecord(kind: kind, id: id); db.insert(value); return value
@@ -85,16 +101,33 @@ final class SyncCoordinator: ObservableObject {
             let encoded = json(payload)
             if record.fingerprint != encoded && record.conflict.isEmpty && !record.deleted
                 && !pending.contains(where: { $0.kind == kind && $0.entityID == id }) {
-                db.insert(PendingOperation(kind: kind, id: id, version: record.version, action: "upsert", payload: encoded))
+                enqueue(PendingOperation(kind: kind, id: id, version: record.version, action: "upsert", payload: encoded))
             }
         }
         for record in records where ["task", "context", "focus"].contains(record.kind) && !record.deleted && record.conflict.isEmpty {
-            if !values.contains(where: { $0.0 == record.kind && $0.1 == record.entityID })
+            if !present.contains(record.kind + ":" + record.entityID)
                 && !pending.contains(where: { $0.kind == record.kind && $0.entityID == record.entityID }) {
-                db.insert(PendingOperation(kind: record.kind, id: record.entityID, version: record.version, action: "delete", payload: "{}"))
+                enqueue(PendingOperation(kind: record.kind, id: record.entityID, version: record.version, action: "delete", payload: "{}"))
             }
         }
         try db.save()
+    }
+
+    /// The server database is newer than this device's cursor (for example a fresh local
+    /// backend). Keep local data, forget server versions and upload it again as new rows.
+    private func resetForBootstrap(_ db: ModelContext) throws {
+        for operation in try db.fetch(FetchDescriptor<PendingOperation>()) { db.delete(operation) }
+        for record in try db.fetch(FetchDescriptor<SyncRecord>()) {
+            if record.deleted { db.delete(record); continue }
+            record.version = 0; record.fingerprint = ""; record.conflict = ""
+        }
+        // Planned sessions are server-owned and are pulled again.
+        for session in try db.fetch(FetchDescriptor<PlannedSession>()) { db.delete(session) }
+        try db.save()
+        for key in ["syncCursor", "syncInitialized", "plannerConversationID", "plannerProposalID", "plannerProposalVersion"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        hasConflicts = false
     }
 
     func sync(_ db: ModelContext) async {
@@ -107,6 +140,13 @@ final class SyncCoordinator: ObservableObject {
                 _ = try await api.request("POST", "/v1/calendar/eventkit/snapshots",
                     ["device_id": api.deviceID, "intervals": [], "enabled": false])
                 UserDefaults.standard.removeObject(forKey: "calendarDisablePending")
+            }
+            if UserDefaults.standard.bool(forKey: "syncInitialized") {
+                // A cursor beyond the server's revision means the backend database was replaced.
+                let me = try await api.request("GET", "/v1/me")
+                if let revision = me["revision"] as? Int, revision < UserDefaults.standard.integer(forKey: "syncCursor") {
+                    try resetForBootstrap(db)
+                }
             }
             if !UserDefaults.standard.bool(forKey: "syncInitialized") {
                 var initialCursor = 0
@@ -123,6 +163,7 @@ final class SyncCoordinator: ObservableObject {
                 UserDefaults.standard.set(true, forKey: "syncInitialized")
             }
             try capture(db)
+            var rejected = 0
             let pending = try db.fetch(FetchDescriptor<PendingOperation>(sortBy: [SortDescriptor(\.createdAt)]))
             for operation in pending {
                 let body: [String: Any] = ["operation_id": operation.operationID, "entity_type": operation.kind,
@@ -137,6 +178,16 @@ final class SyncCoordinator: ObservableObject {
                     hasConflicts = true
                     try db.save()
                     throw BackendFailure(code: "sync_conflict_review_in_settings")
+                }
+                if result["status"] as? String == "error", let code = result["code"] as? String,
+                   ["invalid_payload", "task_cycle"].contains(code) {
+                    // This exact payload can never succeed. Drop it instead of blocking every later
+                    // change; the row is queued again as soon as the user edits it.
+                    record.fingerprint = operation.payload
+                    db.delete(operation)
+                    try db.save()
+                    rejected += 1
+                    continue
                 }
                 guard result["status"] as? String == "applied" else { throw BackendFailure(code: result["code"] as? String ?? "sync_failed") }
                 let entity = result["entity"] as? [String: Any] ?? [:]
@@ -161,9 +212,14 @@ final class SyncCoordinator: ObservableObject {
                 UserDefaults.standard.set(cursor, forKey: "syncCursor")
                 if response["has_more"] as? Bool != true { break }
             }
-            status = L("Đã đồng bộ", "Synced")
+            status = rejected == 0 ? L("Đã đồng bộ", "Synced")
+                : L("Đã đồng bộ; \(rejected) thay đổi không hợp lệ bị bỏ qua.", "Synced; \(rejected) invalid change(s) skipped.")
             hasConflicts = try db.fetch(FetchDescriptor<SyncRecord>()).contains { !$0.conflict.isEmpty }
             lastSucceeded = !hasConflicts
+        } catch let failure as BackendFailure where failure.code == "bootstrap_required" {
+            // Next cycle downloads everything again and re-uploads local rows.
+            try? resetForBootstrap(db)
+            status = L("Backend đã đổi dữ liệu; đang đồng bộ lại từ đầu.", "The backend data changed; resyncing from scratch.")
         } catch { status = error.localizedDescription }
     }
 

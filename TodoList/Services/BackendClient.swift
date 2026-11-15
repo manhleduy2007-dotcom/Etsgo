@@ -4,7 +4,56 @@ import Security
 
 struct BackendFailure: LocalizedError {
     let code: String
-    var errorDescription: String? { code.replacingOccurrences(of: "_", with: " ") }
+    var errorDescription: String? {
+        switch code {
+        case "ai_not_configured":
+            return L("AI chưa được cấu hình trên backend (thiếu khóa API hoặc AI_MODEL trong .env).",
+                     "AI is not configured on the backend (missing API key or AI_MODEL in .env).")
+        case "ai_auth_failed":
+            return L("Khóa API của AI trên backend không hợp lệ hoặc đã hết hạn. Cập nhật khóa trong .env rồi chạy lại docker compose.",
+                     "The backend's AI API key is invalid or expired. Update it in .env and restart docker compose.")
+        case "ai_model_unavailable":
+            return L("Model AI trong AI_MODEL không tồn tại hoặc tài khoản chưa có quyền dùng.",
+                     "The AI_MODEL is unknown or this account has no access to it.")
+        case "ai_provider_quota_exhausted":
+            return L("Tài khoản nhà cung cấp AI đã hết hạn mức thanh toán.", "The AI provider account has run out of credit.")
+        case "ai_rate_limited", "provider_failed":
+            return L("Dịch vụ AI tạm thời không phản hồi. Thử lại sau ít phút.", "The AI service is temporarily unavailable. Try again shortly.")
+        case "ai_invalid_output", "ai_incomplete", "ai_request_rejected":
+            return L("AI trả kết quả không dùng được. Hãy thử lại.", "The AI returned an unusable answer. Please try again.")
+        case "ai_refused":
+            return L("AI từ chối xử lý yêu cầu này.", "The AI declined this request.")
+        case "quota_exceeded":
+            return L("Đã hết lượt AI hôm nay.", "You've used today's AI allowance.")
+        case "conversation_busy":
+            return L("AI vẫn đang trả lời tin trước.", "AI is still answering the previous message.")
+        case "proposal_stale":
+            return L("Đề xuất đã cũ vì dữ liệu vừa thay đổi. Hãy đề xuất lại.", "This proposal is out of date because your data changed. Please propose again.")
+        case "schedule_invalid":
+            return L("Lịch đề xuất không còn hợp lệ (trùng giờ bận hoặc vượt cam kết). Hãy đề xuất lại.",
+                     "The proposed schedule is no longer valid (busy time or commitment changed). Please propose again.")
+        case "calendar_stale":
+            return L("Dữ liệu lịch ngoài đã cũ. Hãy đề xuất lại để làm mới.", "External calendar data is out of date. Propose again to refresh it.")
+        case "sync_conflict_review_in_settings":
+            return L("Có xung đột đồng bộ. Xem ở Cài đặt → Tài khoản và đồng bộ.", "There is a sync conflict. Review it in Settings → Account and sync.")
+        case "sync_required_before_server_action":
+            return L("Chưa đồng bộ được với backend. Kiểm tra backend đang chạy rồi thử lại.",
+                     "Could not sync with the backend. Check that it is running, then try again.")
+        case "login_required", "invalid_token", "authentication_required":
+            return L("Phiên đăng nhập đã hết hạn. Vào Cài đặt → Tài khoản và đồng bộ → Đăng nhập lại.",
+                     "Your session expired. Go to Settings → Account and sync → Renew sign-in.")
+        case "google_not_connected":
+            return L("Chưa kết nối Google Calendar.", "Google Calendar is not connected.")
+        case "google_not_configured":
+            return L("Backend chưa cấu hình Google OAuth (GOOGLE_CLIENT_ID).", "The backend has no Google OAuth client (GOOGLE_CLIENT_ID).")
+        case "calendar_permission_required":
+            return L("Ứng dụng chưa có quyền truy cập Lịch.", "The app has no Calendar access.")
+        case "job_still_running_reopen_to_resume":
+            return L("AI vẫn đang xử lý. Mở lại màn hình sau để xem kết quả.", "AI is still working. Reopen this screen later to see the result.")
+        default:
+            return code.replacingOccurrences(of: "_", with: " ")
+        }
+    }
 }
 
 @MainActor
@@ -109,6 +158,7 @@ final class BackendClient: ObservableObject {
             let job = try await request("GET", "/v1/jobs/" + id)
             if job["status"] as? String == "succeeded" { return job["result"] as? [String: Any] ?? [:] }
             if job["status"] as? String == "failed" { throw BackendFailure(code: job["error"] as? String ?? "job_failed") }
+            if job["status"] as? String == "cancelled" { throw BackendFailure(code: "job_cancelled") }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         throw BackendFailure(code: "job_still_running_reopen_to_resume")

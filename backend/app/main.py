@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -48,7 +49,6 @@ async def bad_data(request, exc):
 
 @app.exception_handler(Exception)
 async def internal_error(request, exc):
-    import httpx
     if isinstance(exc, httpx.HTTPError):
         return await problem(request, Problem(503, "upstream_unavailable"))
     return await problem(request, Problem(500, "internal_error"))
@@ -82,7 +82,8 @@ def development_login(request: Request):
     import jwt
     from uuid import NAMESPACE_URL, uuid5
     owner = str(uuid5(NAMESPACE_URL, "etsgo:local-developer"))
-    token = jwt.encode({"sub": owner, "aud": "etsgo-dev", "exp": now()+timedelta(days=1)}, cfg.dev_auth_secret)
+    # Development sessions have no refresh token, so they last long enough for a demo week.
+    token = jwt.encode({"sub": owner, "aud": "etsgo-dev", "exp": now()+timedelta(days=30)}, cfg.dev_auth_secret)
     return {"access_token": token, "refresh_token": "", "user": {"id": owner}}
 
 
@@ -272,7 +273,14 @@ def schedule_inputs(db, user):
 
 @app.post("/v1/schedule/proposals")
 def schedule_proposal(user: User, key: Key):
-    calendar.google_busy(user, now(), now()+timedelta(days=15))
+    google_warning = []
+    try:
+        calendar.google_busy(user, now(), now()+timedelta(days=15))
+    except Problem as exc:
+        # A failing calendar must not block planning; the stale/missing data is reported instead.
+        google_warning = ["google:"+exc.code]
+    except httpx.HTTPError:
+        google_warning = ["google:calendar_read_failed"]
     with Session.begin() as db:
         lock_account(db, user)
         previous = replay(db, user, "schedule:"+key, {})
@@ -282,7 +290,9 @@ def schedule_proposal(user: User, key: Key):
         result = schedule(tasks, week, commitments, busy, zone, now())
         row = save(db, user, "proposal", uid(), {"type": "schedule", "status": "draft", "input_revision": revision,
                    **result, "task_versions": {t["id"]: t["version"] for t in tasks},
-                   "warnings": ["calendar_stale:"+s for s in stale] + ([] if entities(db, user, "busy") else ["calendar_not_connected"])})
+                   "warnings": google_warning + ["calendar_stale:"+s for s in stale] +
+                               ([] if any(not r.data.get("disabled") for r in entities(db, user, "busy"))
+                                else ["calendar_not_connected"])})
         return remember(db, user, "schedule:"+key, {}, {"id": row.id, "version": row.version, **row.data})
 
 
@@ -363,7 +373,10 @@ def decide(identity: str, decision: str, body: dict, user: User, key: Key):
                 if captured != {t["id"]: t["version"] for t in tasks}:
                     raise Problem(409, "proposal_stale")
                 try:
-                    validate_sessions(data["sessions"], tasks, week, commitments, busy, zone, now())
+                    # Proposals start at the next 5-minute mark; approving a few minutes later
+                    # must not reject the first session as being in the past.
+                    validate_sessions(data["sessions"], tasks, week, commitments, busy, zone,
+                                      now()-timedelta(minutes=15))
                 except (ValueError, KeyError) as exc:
                     raise Problem(409, "schedule_invalid", str(exc)) from None
                 for planned in entities(db, user, "planned"):
@@ -381,11 +394,15 @@ def eventkit_snapshot(body: dict, user: User):
     # Snapshot includes source identity; the client excludes Google calendars it
     # connected directly and excludes the dedicated Etsgo output calendar.
     intervals = body.get("intervals", [])
+    if not isinstance(body.get("device_id"), str) or not isinstance(intervals, list):
+        raise Problem(422, "invalid_request")
     if len(intervals) > 10000:
         raise Problem(422, "snapshot_too_large")
-    for interval in intervals:
-        if parse(interval["end"]) <= parse(interval["start"]):
+    try:
+        if any(parse(i["end"]) <= parse(i["start"]) for i in intervals):
             raise Problem(422, "invalid_interval")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise Problem(422, "invalid_interval") from None
     with Session.begin() as db:
         save(db, user, "busy", "eventkit", {"intervals": intervals, "fetched_at": now().isoformat(),
              "source": "eventkit", "device_id": body["device_id"], "disabled": body.get("enabled") is False})

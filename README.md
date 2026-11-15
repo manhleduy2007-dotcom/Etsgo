@@ -14,10 +14,12 @@ Cần **Xcode 16+**, iOS Simulator 17+, **Docker Desktop đang chạy** và Git.
 ```sh
 git clone https://github.com/manhleduy2007-dotcom/Etsgo.git
 cd Etsgo
-git switch feature/backend-integration
+git switch main
 ```
 
-Nếu đã clone, dùng `git fetch origin`, chuyển sang nhánh trên và `git pull --ff-only` sau khi xử lý thay đổi local của mình.
+Nếu đã clone, dùng `git fetch origin`, chuyển sang `main` và `git pull --ff-only` sau khi xử lý thay đổi local của mình.
+
+Chỉ chạy **một** stack Etsgo cùng lúc: API dùng cổng 8000 và PostgreSQL dùng 5432. Nếu đã có bản checkout khác đang chạy, dừng nó trước (`docker compose -p <tên-thư-mục> stop`; xem tên bằng `docker ps`). Đổi sang database khác thì app tự đồng bộ lại từ đầu và tải dữ liệu trên máy lên lại.
 
 ### 2. Cấu hình local, chưa cần dịch vụ ngoài
 
@@ -86,9 +88,10 @@ Không có credentials không ngăn app mở và dùng to-do, đồng bộ local
 
 ### AI
 
-- Điền `ANTHROPIC_API_KEY` và `AI_MODEL` thực sự được cấp quyền trên tài khoản.
-- Khóa nằm ở backend. Model là cấu hình, không hardcode trong iOS.
-- Chưa cấu hình thì job báo `ai_not_configured`; quota user được hoàn khi job kết thúc lỗi. Quota sản phẩm không đồng nghĩa chi phí provider.
+- OpenAI: `AI_PROVIDER=openai`, `OPENAI_API_KEY`, `AI_MODEL` (model tài khoản được dùng). Backend gọi Responses API qua `httpx`; gateway tương thích chỉ có Chat Completions thì đặt `OPENAI_API_STYLE=chat` và `OPENAI_BASE_URL`.
+- Anthropic: `AI_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, `AI_MODEL`.
+- Khóa nằm ở backend. Model là cấu hình, không hardcode trong iOS. Sau khi sửa `.env`, chạy `docker compose up -d` để API/worker nhận cấu hình mới. Log worker khi khởi động ghi provider/model và có khóa hay không (không ghi khóa).
+- Mã lỗi job: `ai_not_configured` (thiếu khóa/model), `ai_auth_failed` (khóa sai/hết hạn), `ai_model_unavailable`, `ai_provider_quota_exhausted` không retry; `ai_rate_limited`, `provider_failed`, `ai_invalid_output` retry tối đa 3 lần. Quota user được hoàn khi job kết thúc lỗi. Quota sản phẩm không đồng nghĩa chi phí provider.
 
 ### Google Calendar / EventKit
 

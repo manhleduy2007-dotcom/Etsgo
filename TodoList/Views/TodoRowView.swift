@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// Thẻ của một công việc trong danh sách.

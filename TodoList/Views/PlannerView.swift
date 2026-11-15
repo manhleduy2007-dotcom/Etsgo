@@ -384,7 +384,11 @@ struct PlannerView: View {
                 await SyncCoordinator.shared.sync(context)
                 self.draft = nil; bubbles = []; history = []
                 notice = L("Đã lưu kế hoạch. Mở tab Lịch để xếp phiên học.", "Plan saved. Open Schedule to plan sessions.")
-            } catch { errorText = error.localizedDescription }
+            } catch {
+                errorText = error.localizedDescription
+                // A stale draft can never be accepted; let the user ask for a fresh proposal.
+                if (error as? BackendFailure)?.code == "proposal_stale" { self.draft = nil }
+            }
         }
     }
 
@@ -396,7 +400,11 @@ struct PlannerView: View {
             let response = try await BackendClient.shared.request("GET", "/v1/conversations/"+id)
             for message in response["messages"] as? [[String: Any]] ?? [] {
                 let user = message["role"] as? String == "user"
-                if let text = message["content"] as? String { bubbles.append(Bubble(fromUser: user, text: text)) }
+                if let text = message["content"] as? String {
+                    // Hide the plan snapshot that was attached for the AI, not typed by the user.
+                    let shown = text.components(separatedBy: "\n\n(The plan as the user currently has it").first ?? text
+                    bubbles.append(Bubble(fromUser: user, text: shown))
+                }
                 if let turn = message["content"] as? [String: Any], let text = turn["message"] as? String {
                     bubbles.append(Bubble(fromUser: false, text: text, quickReplies: turn["quick_replies"] as? [String] ?? []))
                 }

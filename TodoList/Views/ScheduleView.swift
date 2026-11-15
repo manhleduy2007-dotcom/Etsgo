@@ -44,9 +44,15 @@ struct ScheduleView: View {
                             Button { entries.remove(at: index) } label: { Image(systemName: "xmark") }
                         }
                     }
-                    ForEach(proposal["warnings"] as? [String] ?? [], id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+                    if entries.isEmpty {
+                        Text(L("Chưa xếp được phiên nào trong 14 ngày tới.", "No session fits in the next 14 days."))
+                            .font(.caption)
+                    }
+                    ForEach(proposal["warnings"] as? [String] ?? [], id: \.self) {
+                        Text(warningText($0)).font(.caption).foregroundStyle(.orange)
+                    }
                     ForEach(Array((proposal["unscheduled"] as? [[String: Any]] ?? []).enumerated()), id: \.offset) { _, entry in
-                        Text(title(entry["task_id"] as? String ?? "")+": "+(entry["reason"] as? String ?? ""))
+                        Text(title(entry["task_id"] as? String ?? "") + ": " + reasonText(entry))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Button { approve() } label: { PrimaryLabel(title: L("Duyệt lịch này", "Approve schedule")) }
@@ -58,7 +64,12 @@ struct ScheduleView: View {
                         Text("iPhone Calendar").tag("eventkit")
                         Text("Google Calendar").tag("google")
                     }
-                    Button(L("Ghi các phiên đã duyệt vào Lịch…", "Export approved sessions?")) { confirmExport = true }
+                    if visibleSessions.isEmpty {
+                        Text(L("Chưa có phiên học đã duyệt. Nhấn \"Đề xuất lịch học\" để xếp các việc chưa xong.",
+                               "No approved sessions yet. Tap \"Propose a schedule\" to plan your open tasks."))
+                            .font(.caption).foregroundStyle(Theme.muted)
+                    }
+                    Button(L("Ghi các phiên đã duyệt vào Lịch…", "Export approved sessions…")) { confirmExport = true }
                         .disabled(busy || sessions.isEmpty)
                 }
             }.padding(20)
@@ -72,7 +83,32 @@ struct ScheduleView: View {
         .task { await SyncCoordinator.shared.sync(context) }
     }
     private var visibleSessions: [PlannedSession] {
-        sessions.filter { session in tasks.contains { $0.uid == session.taskID && !$0.isDone } }
+        let today = Calendar.current.startOfDay(for: .now)
+        return sessions.filter { session in
+            session.end > today && tasks.contains { $0.uid == session.taskID && !$0.isDone }
+        }
+    }
+    private func warningText(_ code: String) -> String {
+        if code == "calendar_not_connected" {
+            return L("Chưa kết nối lịch ngoài: lịch bận của bạn CHƯA được tính. Bật Lịch iPhone trong Cài đặt nếu cần.",
+                     "No outside calendar connected: your busy time is NOT included. Turn on iPhone Calendar in Settings if needed.")
+        }
+        if code.hasPrefix("calendar_stale:") || code.hasPrefix("google:") {
+            return L("Dữ liệu lịch ngoài có thể chưa đầy đủ hoặc đã cũ (", "Outside calendar data may be incomplete or out of date (") + code + ")."
+        }
+        return code
+    }
+    private func reasonText(_ entry: [String: Any]) -> String {
+        switch entry["reason"] as? String {
+        case "no_room":
+            let minutes = entry["remaining_minutes"] as? Int ?? 0
+            return L("không đủ chỗ trong khung giờ và cam kết của 14 ngày tới, còn \(durationText(minutes)). Hãy tăng cam kết, giảm phạm vi hoặc dời hạn.",
+                     "no room within your windows and commitment for the next 14 days, \(durationText(minutes)) left. Increase the commitment, reduce scope or move the deadline.")
+        case "dependency_blocked":
+            return L("chờ bước trước được xếp xong.", "waiting for the previous step to be scheduled.")
+        default:
+            return entry["reason"] as? String ?? ""
+        }
     }
     private func exportStatusLine(_ state: [String: String]) -> String {
         let title = state["title"] ?? ""

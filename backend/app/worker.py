@@ -39,7 +39,7 @@ def process_one():
         job.attempts += 1
         job.available_at = now()+timedelta(seconds=180)
         identity, lease = job.id, job.lease
-    result, error = None, None
+    result, error, retryable = None, None, False
     try:
         from types import SimpleNamespace
         with Session() as db:
@@ -48,7 +48,14 @@ def process_one():
         result = execute(work, None)
     except Exception as exc:
         # Never put provider responses, OAuth tokens or personal context in logs.
-        error = exc.code if isinstance(exc, Problem) else (str(exc) if str(exc) in {"ai_not_configured", "ai_incomplete"} else "provider_failed")
+        if isinstance(exc, Problem):
+            error = exc.code
+        elif isinstance(exc, ai.AIFailure):
+            error, retryable = exc.code, exc.retryable
+        elif str(exc) in {"ai_not_configured", "ai_incomplete"}:
+            error = str(exc)
+        else:
+            error, retryable = "provider_failed", True
     with Session.begin() as db:
         job = db.get(Job, identity)
         lock_account(db, job.owner)
@@ -56,7 +63,7 @@ def process_one():
             return True
         if error:
             job.error = error
-            if error == "provider_failed" and job.attempts < 3:
+            if retryable and job.attempts < 3:
                 job.status = "queued"
                 job.available_at = now()+timedelta(seconds=2**job.attempts)
             else:
@@ -119,6 +126,15 @@ def release(db, job):
 
 
 def main():
+    import logging
+    from .config import settings
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    cfg = settings()
+    provider = cfg.resolved_ai_provider
+    key = cfg.openai_api_key if provider == "openai" else cfg.anthropic_api_key
+    # Report configuration presence only; never log keys or model output.
+    logging.getLogger("etsgo.worker").info("Worker started; AI provider=%s model=%s key_configured=%s",
+                                           provider, cfg.ai_model or "<unset>", bool(key))
     while True:
         try:
             if not process_one():

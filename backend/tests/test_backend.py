@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 from sqlalchemy import select
 
 from app.db import Entity, Job, Session
@@ -9,6 +10,8 @@ from app.main import new_job
 from app.schemas import TaskData
 from app.scheduler import schedule, validate_sessions
 from app.worker import process_one
+
+REAL_HTTPX_CLIENT = httpx.Client
 
 
 def operation(kind="task", payload=None, identity=None, version=0, action="upsert"):
@@ -310,3 +313,109 @@ def test_schedule_accept_export_and_stale_ack(client, user):
     response = client.post("/v1/calendar/actions/"+first[0]["id"]+"/result", headers=headers,
                            json={"device_id": "phone", "revision": first[0]["version"], "external_id": "old"})
     assert response.status_code == 409
+
+
+def openai_settings(**overrides):
+    from app.config import Settings
+    values = {"ai_provider": "openai", "openai_api_key": "test-key", "ai_model": "test-model", "_env_file": None}
+    return Settings(**{**values, **overrides})
+
+
+def mock_openai(monkeypatch, handler):
+    import httpx
+    from app import ai
+    monkeypatch.setattr(ai.httpx, "Client",
+                        lambda **kwargs: REAL_HTTPX_CLIENT(transport=httpx.MockTransport(handler), **kwargs))
+
+
+def test_openai_responses_adapter_parses_and_prunes(monkeypatch):
+    import json
+    import httpx
+    from app import ai
+    from app.schemas import PlanTurn
+    seen = {}
+    def handler(request):
+        seen.update(path=request.url.path, body=json.loads(request.content), auth=request.headers["Authorization"])
+        turn = {"type": "question", "message": "Level?", "quick_replies": ["New"], "unexpected": 1}
+        return httpx.Response(200, json={"status": "completed", "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "message", "content": [{"type": "output_text", "text": "```json\n" + json.dumps(turn) + "\n```"}]}]})
+    monkeypatch.setattr(ai, "settings", lambda: openai_settings())
+    mock_openai(monkeypatch, handler)
+    result = ai.complete(PlanTurn, "rule", {"messages": []})
+    assert result["type"] == "question" and result["quick_replies"] == ["New"] and "unexpected" not in result
+    assert seen["path"] == "/v1/responses" and seen["auth"] == "Bearer test-key"
+    assert seen["body"]["model"] == "test-model" and seen["body"]["text"]["format"]["type"] == "json_object"
+
+
+def test_openai_chat_style_and_error_codes(monkeypatch):
+    import httpx
+    import pytest
+    from app import ai
+    from app.schemas import PlanTurn
+    monkeypatch.setattr(ai, "settings", lambda: openai_settings(openai_api_style="chat"))
+    mock_openai(monkeypatch, lambda request: httpx.Response(200, json={"choices": [
+        {"finish_reason": "stop", "message": {"content": '{"type": "question", "message": "Hi"}'}}]}))
+    assert ai.complete(PlanTurn, "rule", {})["message"] == "Hi"
+    for status, code, expected, retry in [(401, "expired_secret_key", "ai_auth_failed", False),
+                                          (404, "model_not_found", "ai_model_unavailable", False),
+                                          (429, "insufficient_quota", "ai_provider_quota_exhausted", False),
+                                          (429, "rate_limit_exceeded", "ai_rate_limited", True),
+                                          (500, "", "provider_failed", True)]:
+        mock_openai(monkeypatch, lambda request, s=status, c=code: httpx.Response(s, json={"error": {"code": c}}))
+        with pytest.raises(ai.AIFailure) as error:
+            ai.complete(PlanTurn, "rule", {})
+        assert (error.value.code, error.value.retryable) == (expected, retry)
+    monkeypatch.setattr(ai, "settings", lambda: openai_settings(openai_api_key=""))
+    with pytest.raises(ai.AIFailure) as error:
+        ai.complete(PlanTurn, "rule", {})
+    assert error.value.code == "ai_not_configured"
+
+
+def test_expired_ai_key_fails_once_and_refunds_quota(client, user, monkeypatch):
+    import httpx
+    from app import ai
+    owner, headers = user
+    monkeypatch.setattr(ai, "settings", lambda: openai_settings())
+    mock_openai(monkeypatch, lambda request: httpx.Response(401, json={"error": {"code": "expired_secret_key"}}))
+    response = client.post("/v1/ai/parse", headers={**headers, "Idempotency-Key": str(uuid4())}, json={"text": "Math"})
+    assert response.status_code == 202
+    identity = response.json()["job_id"]
+    for _ in range(50):
+        process_one()
+        job = client.get("/v1/jobs/"+identity, headers=headers).json()
+        if job["status"] == "failed":
+            break
+    assert job == {"id": identity, "status": "failed", "result": None, "error": "ai_auth_failed"}
+    with Session() as db:
+        assert db.get(Job, identity).attempts == 1
+        assert db.get(Entity, (owner, "quota", str(datetime.now(UTC).date()))).data["used"] == 0
+
+
+def test_deleting_cascaded_child_is_not_a_conflict(client, user):
+    _, headers = user
+    parent = operation()
+    child = operation(payload={"title": "Step", "parent_id": parent["entity_id"]})
+    push(client, headers, parent)
+    push(client, headers, child)
+    assert push(client, headers, operation(identity=parent["entity_id"], version=1, action="delete"))["status"] == "applied"
+    result = push(client, headers, operation(identity=child["entity_id"], version=1, action="delete"))
+    assert result["status"] == "applied" and result["entity"]["deleted"] is True
+    # Editing a deleted record is still a conflict; deleted data is never restored implicitly.
+    assert push(client, headers, operation(identity=child["entity_id"], version=2))["status"] == "conflict"
+
+
+def test_schedule_accept_tolerates_first_slot_passing(client, user, monkeypatch):
+    _, headers = user
+    push(client, headers, operation("profile", {"timezone": "UTC", "language": "en"}))
+    push(client, headers, operation("week", {"days": [
+        {"windows": [{"start": 0, "end": 1440}], "commitment": 600} for _ in range(7)]}))
+    push(client, headers, operation())
+    value = client.post("/v1/schedule/proposals", headers={**headers, "Idempotency-Key": str(uuid4())}).json()
+    assert "calendar_not_connected" in value["warnings"]
+    import app.main
+    later = datetime.now(UTC) + timedelta(minutes=6)
+    monkeypatch.setattr(app.main, "now", lambda: later)
+    response = client.post("/v1/proposals/"+value["id"]+"/accept", headers={**headers, "Idempotency-Key": str(uuid4())},
+                           json={"expected_version": value["version"]})
+    assert response.status_code == 200, response.text
